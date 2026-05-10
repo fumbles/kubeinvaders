@@ -10,9 +10,6 @@ It is part of the Cloud Native Computing Foundation's (CNCF) landscape in the [O
 
 Some companies use it for marketing at tech conferences in DevOps & SRE. For example at [Decompiled 2025](https://www.linkedin.com/posts/cloud-%26-heat-technologies-gmbh_kubeinvaders-onpremise-managedkubernetes-activity-7293538807906258946-YtKV?utm_source=share&utm_medium=member_desktop&rcm=ACoAAAkOMNYBK7j_raLIIJBfs2RBA94_sK4Yeyg).
 
-The teams at [Platform Engineering](https://platformengineering.it/) and [GDT - Garanti Del Talento](https://www.garantideltalento.it) back this project. They provide enterprise-grade features and SRE experts to help customers verify the resilience of their Kubernetes infrastructure.
-
-Here are the [slides](https://www.slideshare.net/EugenioMarzo/kubeinvaders-chaos-engineering-practices-for-kubernetes1pdf) from the Chaos Engineering talk I prepared for FOSDEM 2023. Unfortunately, I could not attend in person, but I still wanted to share them with the community.
 
 # Table of Contents
 
