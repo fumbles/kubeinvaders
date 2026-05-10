@@ -327,4 +327,4 @@ Example of metrics:
 
 ## License
 
-KubeInvaders is licensed under the GNU General Public License v3.0. See [LICENSE](./LICENSE) for the full license text.
+KubeInvaders is licensed under the Apache 2.0. See [LICENSE](./LICENSE) for the full license text.
