@@ -17,17 +17,29 @@ Here are the [slides](https://www.slideshare.net/EugenioMarzo/kubeinvaders-chaos
 # Table of Contents
 
 1. [Description](#Description)
-2. [Installation](#Installation)
-3. [Example using Podman + MiniKube](#Example-using-Podman--MiniKube)
-4. [URL Monitoring During Chaos Session](#URL-Monitoring-During-Chaos-Session)
-5. [Troubleshooting Unknown Namespace](#Troubleshooting-Unknown-Namespace)
-6. [Prometheus Metrics](#Prometheus-Metrics)
-7. [Community blogs and videos](#Community-blogs-and-videos)
-8. [License](#License)
+2. [What you will learn](#What-you-will-learn)
+3. [Installation](#Installation)
+4. [Example using Podman + MiniKube](#Example-using-Podman--MiniKube)
+5. [URL Monitoring During Chaos Session](#URL-Monitoring-During-Chaos-Session)
+6. [Troubleshooting Unknown Namespace](#Troubleshooting-Unknown-Namespace)
+7. [Prometheus Metrics](#Prometheus-Metrics)
+8. [Community blogs and videos](#Community-blogs-and-videos)
+9. [License](#License)
 
 ## Description
 
 Inspired by the classic Space Invaders game, KubeInvaders offers a playful and engaging way to learn about Kubernetes resilience by stressing a cluster and observing its behavior under pressure. This open-source project, built without relying on any external frameworks, provides a fun and educational experience for developers to explore the limits and strengths of their Kubernetes deployments.
+
+## What you will learn
+
+By running chaos experiments with KubeInvaders you can observe the following Kubernetes behaviors directly:
+
+- **Pod lifecycle** — how pods are terminated and recreated by their controllers
+- **Self-healing** — how Deployments and ReplicaSets maintain the desired replica count after pod deletion
+- **Scheduling** — where Kubernetes places new pods after disruption and why
+- **Node pressure** — how the cluster reacts when a worker node is attacked or becomes unavailable
+- **Namespace isolation** — how workloads in different namespaces are affected independently
+- **Recovery time** — how long the cluster takes to return to a steady state under different configurations
 
 ## Installation
 
