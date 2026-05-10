@@ -22,9 +22,8 @@ Here are the [slides](https://www.slideshare.net/EugenioMarzo/kubeinvaders-chaos
 4. [URL Monitoring During Chaos Session](#URL-Monitoring-During-Chaos-Session)
 5. [Troubleshooting Unknown Namespace](#Troubleshooting-Unknown-Namespace)
 6. [Prometheus Metrics](#Prometheus-Metrics)
-7. [Community](#Community)
-8. [Community blogs and videos](#Community-blogs-and-videos)
-9. [License](#License)
+7. [Community blogs and videos](#Community-blogs-and-videos)
+8. [License](#License)
 
 ## Description
 
@@ -177,7 +176,7 @@ kubectl create namespace namespace2
 Install MiniKube:
 
 ```bash
-luckysideburn:~ >> % minikube start
+minikube start
 😄  minikube v1.38.1 on Darwin 26.2 (arm64)
 ✨  Automatically selected the vfkit driver. Other choices: qemu2, virtualbox, vmware, ssh, podman (experimental)
 ❗  Starting v1.39.0, minikube will default to "containerd" container runtime. See #21973 for more info.
@@ -200,12 +199,12 @@ luckysideburn:~ >> % minikube start
 Get the MiniKube API server address using one of these commands:
 
 ```bash
-luckysideburn:~ >> % cat /Users/eugenio/.kube/config | grep server | grep $(minikube ip)
+cat ~/.kube/config | grep server | grep $(minikube ip)
     server: https://192.168.64.2:8443
 ```
 
 ```bash
-luckysideburn:~ >> % kubectl cluster-info
+kubectl cluster-info
 
 Kubernetes control plane is running at https://192.168.64.2:8443
 CoreDNS is running at https://192.168.64.2:8443/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
@@ -216,23 +215,20 @@ Get the MiniKube CA certificate (you will need its content when configuring Kube
 ```bash
 cat ~/.minikube/ca.crt
 ```
-```
 
 Create the namespace, service account, and token:
 
 ```bash
-luckysideburn:~ >> % kubectl create ns kubeinvaders
-namespace/kubeinvaders created
+kubectl create ns kubeinvaders
 
-luckysideburn:~ >> % kubectl create sa kubeinvaders-sa -n kubeinvaders
-serviceaccount/kubeinvaders-sa created
+kubectl create sa kubeinvaders-sa -n kubeinvaders
 
-luckysideburn:~ >> % kubectl create clusterrolebinding kubeinvaders-cluster-admin \
+kubectl create clusterrolebinding kubeinvaders-cluster-admin \
   --clusterrole=cluster-admin \
   --serviceaccount=kubeinvaders:kubeinvaders-sa
 
-luckysideburn:~ >> % kubectl create token kubeinvaders-sa -n kubeinvaders --duration=24h
-<your-token>
+kubectl create token kubeinvaders-sa -n kubeinvaders --duration=24h
+# outputs: <your-token>
 ```
 
 Run KubeInvaders:
@@ -269,7 +265,7 @@ KubeInvaders exposes metrics for Prometheus through the standard endpoint `/metr
 
 Here is an example of Prometheus configuration:
 
-```bash
+```yaml
 scrape_configs:
 - job_name: kubeinvaders
   static_configs:
@@ -292,20 +288,13 @@ Example of metrics:
 
 ![Grafana metrics detail](./doc_images/grafana2.png)
 
-## Community
-
-Please reach out for news, bugs, feature requests, and other issues via:
-
-- On Twitter: [@kubeinvaders](https://twitter.com/kubeinvaders) & [@luckysideburn](https://twitter.com/luckysideburn)
-- New features are published on YouTube too in [this channel](https://www.youtube.com/channel/UCQ5BQ8R2fDL_WkNAllYRrpQ)
-
 ## Community blogs and videos
 
 ![Community blog screenshot](./doc_images/1741171163503.jpg)
 
 - [The Kubernetes ecosystem is a candy store](https://opensource.googleblog.com/2024/06/the-kubernetes-ecosystem-is-candy-store.html)
-- [ AdaCon Norway Live Stream ](https://www.youtube.com/watch?v=rt_eM_KRfK4)
-- [ LILiS - Linux Day 2023 Benevento ](https://www.youtube.com/watch?v=1tHkEfbGjgE)
+- [AdaCon Norway Live Stream](https://www.youtube.com/watch?v=rt_eM_KRfK4)
+- [LILiS - Linux Day 2023 Benevento](https://www.youtube.com/watch?v=1tHkEfbGjgE)
 - Kubernetes.io blog: [KubeInvaders - Gamified Chaos Engineering Tool for Kubernetes](https://kubernetes.io/blog/2020/01/22/kubeinvaders-gamified-chaos-engineering-tool-for-kubernetes/)
 - acloudguru: [cncf-state-of-the-union](https://acloudguru.com/videos/kubernetes-this-month/cncf-state-of-the-union)
 - DevNation RedHat Developer: [Twitter](https://twitter.com/sebi2706/status/1316681264179613707)
