@@ -1,0 +1,149 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: '[]'
+    capabilities: Basic Install
+    categories: Developer Tools, Monitoring
+    containerImage: docker.io/fumbles/kubeinvaders-operator:v0.1.0
+    repository: https://github.com/lucky-sideburn/kubeinvaders
+    support: KubeInvaders Community
+  name: kubeinvaders-operator.v0.0.0
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - description: |-
+        KubeInvaders deploys the KubeInvaders chaos engineering game and points it
+        at a set of target namespaces, where pods become aliens you can shoot down.
+      displayName: KubeInvaders
+      kind: KubeInvaders
+      name: kubeinvaders.game.kubeinvaders.io
+      resources:
+      - kind: Deployment
+        name: ""
+        version: v1
+      - kind: Ingress
+        name: ""
+        version: v1
+      - kind: Service
+        name: ""
+        version: v1
+      - kind: ServiceAccount
+        name: ""
+        version: v1
+      specDescriptors:
+      - description: |-
+          TargetNamespaces are the namespaces where KubeInvaders performs chaos
+          experiments (i.e. where the aliens are pods you can shoot down).
+        displayName: Target Namespaces
+        path: targetNamespaces
+      - description: Image is the KubeInvaders container image.
+        displayName: Image
+        path: image
+      - description: Replicas is the number of KubeInvaders pods.
+        displayName: Replicas
+        path: replicas
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:podCount
+      - description: |-
+          ApplicationURL is the externally visible URL of the game, exported as the
+          APPLICATION_URL environment variable. Defaults to the Ingress host when
+          the Ingress is enabled.
+        displayName: Application URL
+        path: applicationURL
+      - description: |-
+          ExtraEnv are additional environment variables for the KubeInvaders
+          container (e.g. ALIENPROXIMITY, HITSLIMIT, UPDATETIME, DISABLE_TLS).
+        displayName: Extra Environment Variables
+        path: extraEnv
+      - description: Ingress configures the optional Ingress for the web UI.
+        displayName: Ingress
+        path: ingress
+      - description: Resources are the compute resources for the KubeInvaders container.
+        displayName: Resources
+        path: resources
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:resourceRequirements
+      - description: ServiceType is the type of the Service exposing the web UI.
+        displayName: Service Type
+        path: serviceType
+      statusDescriptors:
+      - description: Conditions represent the latest available observations of the
+          state.
+        displayName: Conditions
+        path: conditions
+        x-descriptors:
+        - urn:alm:descriptor:io.kubernetes.conditions
+      - description: ReadyReplicas is the number of ready KubeInvaders pods.
+        displayName: Ready Replicas
+        path: readyReplicas
+      version: v1alpha1
+  description: |
+    KubeInvaders is a gamified chaos engineering and educational tool for Kubernetes,
+    recommended by the CNCF. Inspired by the classic Space Invaders game, it lets you
+    stress a Kubernetes cluster in a fun way: pods in the target namespaces appear as
+    aliens, and shooting them deletes the pods so you can watch Kubernetes self-healing
+    in action.
+
+    ## What you will learn
+
+    * **Pod lifecycle** - how pods are terminated and recreated by their controllers
+    * **Self-healing** - how Deployments and ReplicaSets maintain the desired replica count
+    * **Scheduling** - where Kubernetes places new pods after disruption and why
+    * **Node pressure** - how the cluster reacts when a worker node is attacked
+    * **Recovery time** - how long the cluster takes to return to a steady state
+
+    ## Using the operator
+
+    Create a `KubeInvaders` resource specifying the namespaces to target:
+
+    ```yaml
+    apiVersion: game.kubeinvaders.io/v1alpha1
+    kind: KubeInvaders
+    metadata:
+      name: kubeinvaders
+    spec:
+      targetNamespaces:
+        - namespace1
+        - namespace2
+    ```
+
+    The operator deploys the game, exposes it through a Service (and optional Ingress),
+    and grants the game's ServiceAccount the RBAC it needs for chaos experiments.
+  displayName: KubeInvaders
+  icon:
+  - base64data: PD94bWwgdmVyc2lvbj0iMS4wIiBzdGFuZGFsb25lPSJubyI/Pgo8IURPQ1RZUEUgc3ZnIFBVQkxJQyAiLS8vVzNDLy9EVEQgU1ZHIDIwMDEwOTA0Ly9FTiIKICJodHRwOi8vd3d3LnczLm9yZy9UUi8yMDAxL1JFQy1TVkctMjAwMTA5MDQvRFREL3N2ZzEwLmR0ZCI+CjxzdmcgdmVyc2lvbj0iMS4wIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciCiB3aWR0aD0iMTQyNC4wMDAwMDBwdCIgaGVpZ2h0PSIxMDI0LjAwMDAwMHB0IiB2aWV3Qm94PSIwIDAgMTQyNC4wMDAwMDAgMTAyNC4wMDAwMDAiCiBwcmVzZXJ2ZUFzcGVjdFJhdGlvPSJ4TWlkWU1pZCBtZWV0Ij4KPG1ldGFkYXRhPgpDcmVhdGVkIGJ5IHBvdHJhY2UgMS4xMywgd3JpdHRlbiBieSBQZXRlciBTZWxpbmdlciAyMDAxLTIwMTUKPC9tZXRhZGF0YT4KPGcgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoMC4wMDAwMDAsMTAyNC4wMDAwMDApIHNjYWxlKDAuMTAwMDAwLC0wLjEwMDAwMCkiCmZpbGw9IiMwMDAwMDAiIHN0cm9rZT0ibm9uZSI+CjxwYXRoIGQ9Ik03MDk1IDc4MzMgYy0xMCAtMTUgLTM4MiAtNTIxIC04MjcgLTExMjUgbC04MDggLTEwOTggMiAtOTk2IDMgLTk5NgozMTQgMzMxIDMxMyAzMzEgMTAyOCAwIDEwMjggMCAzMTMgLTMzMSAzMTQgLTMzMSAzIDk5NiAyIDk5NiAtNjMxIDg1NyBjLTM0OAo0NzIgLTcyMCA5NzggLTgyOCAxMTI1IC0xMDggMTQ3IC0xOTkgMjY4IC0yMDIgMjY4IC00IDAgLTE1IC0xMiAtMjQgLTI3egptMjAwIC0xNzMzIGwxNjUgLTIyNSAwIC00MzcgMCAtNDM4IC0zNDAgMCAtMzQwIDAgMCA0MzggMCA0MzcgMTY3IDIyOCBjOTIKMTI1IDE3MSAyMjYgMTc1IDIyNSA0IC0yIDgyIC0xMDQgMTczIC0yMjh6Ii8+CjxwYXRoIGQ9Ik03MDExIDU5NjMgbC0xMDEgLTEzOCAzIC0zNDUgMiAtMzQ1IDIwNSAwIDIwNSAwIDIgMzQ1IDMgMzQ1IC0xMDEKMTM4IGMtNTUgNzUgLTEwNCAxMzcgLTEwOSAxMzcgLTUgMCAtNTQgLTYyIC0xMDkgLTEzN3oiLz4KPHBhdGggZD0iTTM1MjAgMjcyNSBsMCAtMzQ1IDcwIDAgNzAgMCAwIDEwOCAwIDEwOCAzOSAzOCAzOCAzNyA1MCAtNzggYzI4Ci00MyA2NyAtMTA4IDg5IC0xNDUgbDM4IC02OCA3OSAwIGM0MyAwIDc2IDMgNzQgOCAtMyA0IC01MCA4MSAtMTA0IDE3MiAtNTUKOTEgLTEwNyAxNzcgLTExNyAxOTIgLTE2IDI1IC0xNiAyNiA0NiAxMDQgMzUgNDQgODcgMTA5IDExNyAxNDcgbDUzIDY3IC03OSAwCi03OCAtMSAtMTIwIC0xNTIgLTEyMCAtMTUyIC0zIDE1MyAtMyAxNTIgLTY5IDAgLTcwIDAgMCAtMzQ1eiIvPgo8cGF0aCBkPSJNNDE1NiAyODgzIGMtMTEgLTI4NSA4IC0zODEgODggLTQ1MSA0MiAtMzYgOTcgLTUzIDE4MSAtNTYgODggLTIKMTUyIDIwIDIwMSA2OSA2OCA2OCA3NCAxMDEgNzQgMzgyIGwwIDI0MyAtNjQgMCAtNjQgMCAtNCAtMjM3IGMtNSAtMjU2IC0xMgotMjkzIC01OSAtMzI3IC0yOCAtMTkgLTExMyAtMjEgLTE0OSAtMyAtMTQgNyAtMzQgMzAgLTQ1IDUyIC0xOCAzNiAtMjAgNjEKLTIxIDI3NSBsLTEgMjM1IC02NSAzIC02NSAzIC03IC0xODh6Ii8+CjxwYXRoIGQ9Ik00ODYwIDI3MjUgbDAgLTM0NyAxODMgNCBjMTcyIDMgMTg1IDQgMjMyIDI4IDY1IDM0IDk1IDg5IDk1IDE3MyAwCjc0IC0yNCAxMTcgLTgwIDE0NSBsLTQwIDIwIDI2IDE3IGMxNCA5IDM1IDM3IDQ2IDYyIDM4IDg1IDcgMTcyIC03NSAyMTYgLTM4CjIwIC01OSAyMiAtMjE0IDI1IGwtMTczIDQgMCAtMzQ3eiBtMzE0IDIyMSBjMjIgLTE0IDI2IC0yNCAyNiAtNjQgLTEgLTc3IC0zMwotMTAyIC0xMzQgLTEwMiBsLTY2IDAgMCA5NiAwIDk3IDc0IC01IGM0NiAtMyA4NSAtMTEgMTAwIC0yMnogbTkgLTI3NyBjNDYKLTIxIDYxIC05MyAzMiAtMTQ5IC0xNyAtMzIgLTYzIC01MCAtMTMwIC01MCAtODUgMCAtODUgMCAtODUgMTExIGwwIDk5IDgwIDAKYzQzIDAgOTAgLTUgMTAzIC0xMXoiLz4KPHBhdGggZD0iTTU1MDAgMjcyNSBsMCAtMzQ1IDIyMCAwIDIyMCAwIDAgNTUgMCA1NSAtMTUwIDAgLTE1MCAwIDAgOTUgMCA5NQoxMDUgMCAxMDUgMCAwIDU1IDAgNTUgLTEwNSAwIC0xMDUgMCAwIDg1IDAgODUgMTQxIDAgMTQwIDAgLTMgNTMgLTMgNTIgLTIwNwozIC0yMDggMiAwIC0zNDV6Ii8+CjxwYXRoIGQ9Ik02MDcwIDI3MjUgbDAgLTM0NSA3MCAwIDcwIDAgMCAzNDUgMCAzNDUgLTcwIDAgLTcwIDAgMCAtMzQ1eiIvPgo8cGF0aCBkPSJNNjM5MCAyNzI1IGwwIC0zNDUgNjYgMCA2NiAwIC00IDI0MSAtNCAyNDAgMjYgLTQ5IGMxNCAtMjcgNzkgLTEzNQoxNDUgLTI0MCBsMTIwIC0xOTIgNzMgMCA3MiAwIDAgMzQ1IDAgMzQ1IC02NiAwIC02NiAwIDQgLTI0OSAzIC0yNDkgLTI5IDUxCmMtMTYgMjkgLTg1IDE0MSAtMTU0IDI1MCBsLTEyNCAxOTcgLTY0IDAgLTY0IDAgMCAtMzQ1eiIvPgo8cGF0aCBkPSJNNzA0MiAzMDUyIGMyIC0xMCA1NyAtMTY2IDEyMyAtMzQ1IGwxMjAgLTMyNyA2MiAwIGM1OCAwIDYyIDIgNzEgMjgKNSAxNSA0NCAxMjIgODcgMjM3IDQyIDExNiA5NCAyNTkgMTE2IDMxOCBsMzkgMTA4IC03NiAtMyAtNzUgLTMgLTU1IC0xNjUKYy0yOSAtOTEgLTY0IC0xOTkgLTc1IC0yNDAgLTEyIC00MSAtMjQgLTc5IC0yNyAtODQgLTIgLTUgLTE1IDI3IC0yOCA3MCAtMTMKNDQgLTQ5IDE1NiAtODEgMjQ5IGwtNTggMTcwIC03MyAzIGMtNjcgMyAtNzMgMSAtNzAgLTE2eiIvPgo8cGF0aCBkPSJNNzc3OCAyNzI1IGwtMTI1IC0zNDUgNzYgMCA3NyAwIDIyIDc1IDIyIDc2IDEyNyAtMyAxMjYgLTMgMjUgLTcyCjI0IC03MyA3NCAwIGM0MSAwIDc0IDMgNzQgOCAtMSA0IC01NiAxNTggLTEyNCAzNDIgbC0xMjMgMzM1IC03NSAzIC03NCAzCi0xMjYgLTM0NnogbTI0NiA1NSBjMjUgLTgwIDQzIC0xNDYgNDIgLTE0OCAtMiAtMSAtNDQgLTEgLTkzIDAgbC04OSAzIDQ1IDE0NwpjMjUgODEgNDYgMTQ2IDQ4IDE0NSAxIC0yIDIyIC02OCA0NyAtMTQ3eiIvPgo8cGF0aCBkPSJNODM4OCAzMDY0IGMtNSAtNCAtOCAtMTYwIC04IC0zNDYgbDAgLTMzOCAxMDMgLTIgYzE1MyAtNCAyMDcgMCAyNjEKMjAgNzAgMjQgMTM3IDg4IDE3MiAxNjQgMjcgNTggMjkgNzIgMjkgMTc4IDAgOTkgLTMgMTIyIC0yMyAxNjYgLTI5IDYzIC03MgoxMDYgLTEzNyAxMzYgLTQ0IDIwIC02OSAyMyAtMjIwIDI2IC05MyAyIC0xNzMgMCAtMTc3IC00eiBtMzI0IC0xMjAgYzY2IC0zNAo5MiAtMTA2IDg2IC0yMzkgLTUgLTEwNSAtMjggLTE2MSAtODEgLTE5NCAtNDAgLTI0IC0xMDMgLTM2IC0xNTIgLTI3IGwtMzUgNwowIDIzNCAwIDIzNCAzMyAzIGM0NyA2IDExOCAtMyAxNDkgLTE4eiIvPgo8cGF0aCBkPSJNOTA4NyAzMDYzIGMtNCAtMyAtNyAtMTU5IC03IC0zNDUgbDAgLTMzOCAyMjUgMCAyMjUgMCAwIDU1IDAgNTUKLTE1MCAwIC0xNTAgMCAwIDk1IDAgOTUgMTA2IDAgMTA1IDAgLTMgNTMgLTMgNTIgLTEwMiAzIC0xMDMgMyAwIDg0IDAgODUgMTM1CjAgMTM1IDAgMCA1NSAwIDU1IC0yMDMgMCBjLTExMiAwIC0yMDcgLTMgLTIxMCAtN3oiLz4KPHBhdGggZD0iTTk2NTAgMjcyNiBsMCAtMzQ2IDcwIDAgNzAgMCAwIDEzMCAwIDEzMSA2MyAtMyA2MiAtMyAyMyAtNDUgYzEyCi0yNSAzNiAtODIgNTMgLTEyNyBsMzAgLTgzIDgwIDAgYzcwIDAgOTYgOSA3MSAyNCAtNSAzIC0yOCA0OSAtNTIgMTAzIC0yNCA1NAotNTQgMTEyIC02NyAxMzAgbC0yMyAzMiAyOSAxNSBjNDkgMjYgNzQgNzggNzggMTY1IDYgMTAyIC0xOSAxNTUgLTkyIDE5MSAtNDcKMjMgLTYyIDI1IC0yMjIgMjggbC0xNzMgMyAwIC0zNDV6IG0zMTEgMjIxIGMzMCAtMjAgMzQgLTI5IDM3IC03MSA2IC05OCAtMzQKLTEzNiAtMTQyIC0xMzYgbC02NiAwIDAgMTA5IGMwIDEyNCAtNCAxMTggODYgMTIwIDM4IDEgNjAgLTUgODUgLTIyeiIvPgo8cGF0aCBkPSJNMTAzNzIgMzA0NCBjLTY4IC0zNCAtOTUgLTc4IC05NSAtMTUzIDAgLTkxIDQ1IC0xNTEgMTU2IC0yMDcgODgKLTQ1IDEyNyAtNzQgMTM3IC0xMDAgMTMgLTM0IDMgLTcyIC0yNCAtODYgLTM0IC0xOSAtMTQ3IC0xMyAtMTk5IDEwIGwtNDYgMjAKLTExIC01NSBjLTcgLTMwIC0xMCAtNTcgLTcgLTU5IDE1IC0xNiAxMjQgLTM1IDE5NyAtMzYgNjkgMCA5NSA0IDEzMyAyMiAxMTYKNTUgMTQxIDIwNCA1MCAyOTIgLTIxIDIwIC03OCA2MCAtMTI4IDg4IC0xMDcgNjEgLTExMyA2NiAtMTIxIDEwNyAtMTMgNjUgODAKMTAyIDE3NCA2OSAyNiAtMTAgNTQgLTE5IDYzIC0yMiAxMyAtNCAxOCA2IDI3IDQ4IDEyIDYxIDExIDYyIC02MSA3OCAtOTAgMTkKLTE4NyAxMyAtMjQ1IC0xNnoiLz4KPC9nPgo8L3N2Zz4K
+    mediatype: image/svg+xml
+  install:
+    spec:
+      deployments: null
+    strategy: deployment
+  installModes:
+  - supported: true
+    type: OwnNamespace
+  - supported: true
+    type: SingleNamespace
+  - supported: false
+    type: MultiNamespace
+  - supported: true
+    type: AllNamespaces
+  keywords:
+  - chaos-engineering
+  - game
+  - resilience
+  - education
+  - space-invaders
+  links:
+  - name: KubeInvaders on GitHub
+    url: https://github.com/lucky-sideburn/kubeinvaders
+  maintainers:
+  - email: danielr.riggins@gmail.com
+    name: Daniel Riggins
+  maturity: alpha
+  minKubeVersion: 1.25.0
+  provider:
+    name: KubeInvaders Community
+    url: https://github.com/lucky-sideburn/kubeinvaders
+  version: 0.0.0

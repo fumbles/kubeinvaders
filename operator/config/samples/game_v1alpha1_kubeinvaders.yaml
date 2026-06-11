@@ -1,0 +1,26 @@
+apiVersion: game.kubeinvaders.io/v1alpha1
+kind: KubeInvaders
+metadata:
+  labels:
+    app.kubernetes.io/name: kubeinvaders-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: kubeinvaders-sample
+spec:
+  # Namespaces where KubeInvaders will run chaos experiments
+  targetNamespaces:
+    - namespace1
+    - namespace2
+  image: docker.io/luckysideburn/kubeinvaders:latest
+  replicas: 1
+  serviceType: ClusterIP
+  ingress:
+    enabled: false
+    # host: kubeinvaders.example.com
+    # ingressClassName: nginx
+  # extraEnv:
+  #   - name: ALIENPROXIMITY
+  #     value: "10"
+  #   - name: HITSLIMIT
+  #     value: "1"
+  #   - name: UPDATETIME
+  #     value: "0.5"

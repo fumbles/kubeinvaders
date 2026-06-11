@@ -1,0 +1,18 @@
+# Adds namespace to all resources.
+namespace: kubeinvaders-operator-system
+
+# Value of this field is prepended to the
+# names of all resources, e.g. a deployment named
+# "wordpress" becomes "alices-wordpress".
+namePrefix: kubeinvaders-operator-
+
+# Labels to add to all resources and selectors.
+labels:
+- includeSelectors: true
+  pairs:
+    app.kubernetes.io/part-of: kubeinvaders-operator
+
+resources:
+- ../crd
+- ../rbac
+- ../manager
