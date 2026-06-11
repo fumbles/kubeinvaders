@@ -13,6 +13,9 @@ fi
 trap "exit" INT TERM ERR
 trap "kill 0" EXIT
 
+# nginx temp dirs (paths configured in nginx.conf; /tmp works under any UID)
+mkdir -p /tmp/nginx
+
 redis-server /etc/redis/redis.conf &
 /opt/metrics_loop/start.sh &
 # /opt/logs_loop/start.sh &
