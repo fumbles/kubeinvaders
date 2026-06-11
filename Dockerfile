@@ -39,6 +39,9 @@ COPY html/ /var/www/html
 
 # Configure Redis
 COPY confs/redis/redis.conf /etc/redis/redis.conf
+# The Debian redis package creates /etc/redis as 750 redis:redis; open it up so
+# the config is readable under arbitrary UIDs (e.g. OpenShift restricted SCC)
+RUN chmod 755 /etc/redis && chmod 644 /etc/redis/redis.conf
 
 # Configure Nginx and KubeInvaders conf
 RUN sed -i.bak 's/listen\(.*\)80;/listen 8081;/' /etc/nginx/conf.d/default.conf
