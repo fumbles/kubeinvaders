@@ -1,3 +1,7 @@
+# The kubeinvaders namespace must exist before applying this sample:
+#   kubectl create namespace kubeinvaders   (or: oc new-project kubeinvaders)
+# Note: the OpenShift console's "Create instance" form ignores this namespace
+# and creates the CR in the currently selected project instead.
 apiVersion: game.kubeinvaders.io/v1alpha1
 kind: KubeInvaders
 metadata:
@@ -5,6 +9,7 @@ metadata:
     app.kubernetes.io/name: kubeinvaders-operator
     app.kubernetes.io/managed-by: kustomize
   name: kubeinvaders-sample
+  namespace: kubeinvaders
 spec:
   # Namespaces where KubeInvaders runs chaos experiments.
   targetNamespaces:
@@ -16,8 +21,11 @@ spec:
     replicas: 8
   # OpenShift: expose the game UI via a Route (host auto-generated).
   # The route host is exported to the game as APPLICATION_URL.
+  # tls gives edge termination + http->https redirect; browsers auto-upgrade
+  # to https these days, so plain-http routes appear broken.
   route:
     enabled: true
+    tls: true
   # Non-OpenShift clusters: use an Ingress instead of the route.
   ingress:
     enabled: false

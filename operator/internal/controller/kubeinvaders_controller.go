@@ -184,6 +184,11 @@ func (r *KubeInvadersReconciler) reconcileClusterRBAC(ctx context.Context, kinv 
 				Verbs:     []string{"get", "list", "watch"},
 			},
 			{
+				APIGroups: []string{"kubevirt.io"},
+				Resources: []string{"virtualmachines", "virtualmachineinstances"},
+				Verbs:     []string{"get", "list", "watch"},
+			},
+			{
 				APIGroups: []string{"subresources.kubevirt.io"},
 				Resources: []string{"virtualmachines/restart"},
 				Verbs:     []string{"update"},

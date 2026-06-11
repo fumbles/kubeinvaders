@@ -47,6 +47,21 @@ failed to pull image ...: no policy.json file found at any of the following:
 
 Not an error — `make manifests generate` found the Go markers and committed YAML out of sync and regenerated. Review the diff and commit it.
 
+### Game pod under OpenShift restricted SCC: Redis never starts
+
+```
+redis.exceptions.ConnectionError: Error 2 connecting to unix socket: /tmp/redis.sock.
+```
+
+**Cause (three layers, all from the game image assuming root):** the Debian redis package ships `/etc/redis` as `750 redis:redis`, so a random UID can't even read the config; `redis.conf` pointed pidfile/dir at `/var/run/redis` and `/var/lib/redis` (unwritable); and a `logfile stdou` typo plus `daemonize yes` made the failure silent.
+**Fix (commits `079eb79` + `944286c` in the fork, upstreamable):** Dockerfile `chmod 755 /etc/redis`; redis pidfile/dir → `/tmp`; `logfile ""`; nginx pid + temp paths → `/tmp`. Verify with:
+
+```bash
+oc exec <pod> -- redis-cli -s /tmp/redis.sock ping   # → PONG
+```
+
+**Debugging tip:** `daemonize yes` + `logfile ""` sends Redis startup errors to /dev/null. Run it in the foreground to see the real error: `oc exec <pod> -- redis-server /etc/redis/redis.conf --daemonize no`.
+
 ## Cluster issues
 
 ### Catalog pod CrashLoopBackOff: "integrity check failed"

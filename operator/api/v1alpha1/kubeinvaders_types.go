@@ -156,7 +156,7 @@ type KubeInvadersStatus struct {
 // KubeInvaders deploys the KubeInvaders chaos engineering game and points it
 // at a set of target namespaces, where pods become aliens you can shoot down.
 // +operator-sdk:csv:customresourcedefinitions:displayName="KubeInvaders"
-// +operator-sdk:csv:customresourcedefinitions:resources={{Deployment,v1,""},{Service,v1,""},{ServiceAccount,v1,""},{Ingress,v1,""}}
+// +operator-sdk:csv:customresourcedefinitions:resources={{Deployment,v1,""},{Service,v1,""},{ServiceAccount,v1,""},{Ingress,v1,""},{Route,v1,""},{Namespace,v1,""}}
 type KubeInvaders struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
