@@ -23,7 +23,25 @@ cd operator && make deploy IMG=docker.io/fumbles/kubeinvaders-operator:v0.1.0
 
 ## Creating an instance
 
-Minimal — chaos against two namespaces:
+Zero-setup demo (OpenShift) — the operator creates the target namespace, demo aliens to shoot, and a Route; this is also the default the console "Create instance" form offers:
+
+```yaml
+apiVersion: game.kubeinvaders.io/v1alpha1
+kind: KubeInvaders
+metadata:
+  name: kubeinvaders
+  namespace: kubeinvaders
+spec:
+  targetNamespaces: [kubeinvaders-demo]
+  demo:
+    enabled: true
+  route:
+    enabled: true
+```
+
+Then `oc get route kubeinvaders -n kubeinvaders` (or the CR's Route link in the console) and play.
+
+Minimal — chaos against existing namespaces, no demo resources:
 
 ```yaml
 apiVersion: game.kubeinvaders.io/v1alpha1
@@ -74,6 +92,12 @@ spec:
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `targetNamespaces` | []string | — | **Required**, min 1. Namespaces whose pods become aliens |
+| `demo.enabled` | bool | false | Operator creates target namespaces (if missing) + an "aliens" demo deployment in each — no manual setup. Namespaces it created are removed again on CR deletion |
+| `demo.replicas` | int32 | 8 | Pods per demo deployment |
+| `demo.image` | string | `nginxinc/nginx-unprivileged:stable` | Demo workload image |
+| `route.enabled` | bool | false | OpenShift: creates a Route for the UI; the assigned host is exported as `APPLICATION_URL`. On non-OpenShift clusters a `RouteAvailable: False` condition is set instead |
+| `route.host` | string | auto-generated | Route hostname |
+| `route.tls` | bool | false | Edge TLS termination with HTTP→HTTPS redirect |
 | `image` | string | `docker.io/luckysideburn/kubeinvaders:latest` | Game image |
 | `replicas` | int32 | 1 | Game pods |
 | `serviceType` | enum | `ClusterIP` | `ClusterIP` \| `NodePort` \| `LoadBalancer` |

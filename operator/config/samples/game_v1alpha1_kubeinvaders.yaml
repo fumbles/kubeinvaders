@@ -6,13 +6,19 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: kubeinvaders-sample
 spec:
-  # Namespaces where KubeInvaders will run chaos experiments
+  # Namespaces where KubeInvaders runs chaos experiments.
   targetNamespaces:
-    - namespace1
-    - namespace2
-  image: docker.io/luckysideburn/kubeinvaders:latest
-  replicas: 1
-  serviceType: ClusterIP
+    - kubeinvaders-demo
+  # Create the target namespaces and demo "aliens" workloads automatically,
+  # so there is something to shoot at with zero manual setup.
+  demo:
+    enabled: true
+    replicas: 8
+  # OpenShift: expose the game UI via a Route (host auto-generated).
+  # The route host is exported to the game as APPLICATION_URL.
+  route:
+    enabled: true
+  # Non-OpenShift clusters: use an Ingress instead of the route.
   ingress:
     enabled: false
     # host: kubeinvaders.example.com
@@ -22,5 +28,3 @@ spec:
   #     value: "10"
   #   - name: HITSLIMIT
   #     value: "1"
-  #   - name: UPDATETIME
-  #     value: "0.5"

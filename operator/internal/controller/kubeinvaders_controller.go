@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -12,7 +13,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -24,9 +27,13 @@ import (
 )
 
 const (
-	finalizerName = "game.kubeinvaders.io/finalizer"
-	httpPort      = 8080
+	finalizerName  = "game.kubeinvaders.io/finalizer"
+	httpPort       = 8080
+	createdByLabel = "game.kubeinvaders.io/created-by"
+	demoDeployName = "kubeinvaders-aliens"
 )
+
+var routeGVK = schema.GroupVersionKind{Group: "route.openshift.io", Version: "v1", Kind: "Route"}
 
 // KubeInvadersReconciler reconciles a KubeInvaders object.
 type KubeInvadersReconciler struct {
@@ -42,6 +49,8 @@ type KubeInvadersReconciler struct {
 // +kubebuilder:rbac:groups="",resources=services;serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;delete
 //
 // Permissions the operator grants to the KubeInvaders game ServiceAccount
 // (Kubernetes RBAC requires the granter to hold these permissions too):
@@ -65,10 +74,14 @@ func (r *KubeInvadersReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	// Handle deletion: clean up cluster-scoped RBAC that cannot have an owner reference.
+	// Handle deletion: clean up resources that cannot have an owner reference
+	// (cluster-scoped RBAC, demo resources in other namespaces).
 	if !kinv.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(kinv, finalizerName) {
 			if err := r.deleteClusterRBAC(ctx, kinv); err != nil {
+				return ctrl.Result{}, err
+			}
+			if err := r.deleteDemoResources(ctx, kinv); err != nil {
 				return ctrl.Result{}, err
 			}
 			controllerutil.RemoveFinalizer(kinv, finalizerName)
@@ -89,7 +102,7 @@ func (r *KubeInvadersReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	for _, reconcileFn := range []func(context.Context, *gamev1alpha1.KubeInvaders) error{
 		r.reconcileServiceAccount,
 		r.reconcileClusterRBAC,
-		r.reconcileDeployment,
+		r.reconcileDemo,
 		r.reconcileService,
 		r.reconcileIngress,
 	} {
@@ -98,11 +111,26 @@ func (r *KubeInvadersReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}
 
+	routeHost, err := r.reconcileRoute(ctx, kinv)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if err := r.reconcileDeployment(ctx, kinv, routeHost); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	if err := r.updateStatus(ctx, kinv); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	log.Info("reconciled KubeInvaders", "name", kinv.Name, "namespace", kinv.Namespace)
+
+	// The route host is assigned asynchronously by the OpenShift router;
+	// requeue until we know it so APPLICATION_URL can be set.
+	if kinv.Spec.Route.Enabled && kinv.Spec.ApplicationURL == "" && routeHost == "" {
+		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	}
 	return ctrl.Result{}, nil
 }
 
@@ -201,9 +229,12 @@ func (r *KubeInvadersReconciler) deleteClusterRBAC(ctx context.Context, kinv *ga
 	return nil
 }
 
-func (r *KubeInvadersReconciler) applicationURL(kinv *gamev1alpha1.KubeInvaders) string {
+func (r *KubeInvadersReconciler) applicationURL(kinv *gamev1alpha1.KubeInvaders, routeHost string) string {
 	if kinv.Spec.ApplicationURL != "" {
 		return kinv.Spec.ApplicationURL
+	}
+	if routeHost != "" {
+		return routeHost
 	}
 	if kinv.Spec.Ingress.Enabled && kinv.Spec.Ingress.Host != "" {
 		return kinv.Spec.Ingress.Host
@@ -211,7 +242,184 @@ func (r *KubeInvadersReconciler) applicationURL(kinv *gamev1alpha1.KubeInvaders)
 	return fmt.Sprintf("%s.%s.svc.cluster.local:%d", kinv.Name, kinv.Namespace, httpPort)
 }
 
-func (r *KubeInvadersReconciler) reconcileDeployment(ctx context.Context, kinv *gamev1alpha1.KubeInvaders) error {
+// reconcileDemo ensures each target namespace exists and contains a demo
+// "aliens" deployment, so the game has pods to shoot at out of the box.
+// Namespaces created here are labeled so they (and only they) are deleted
+// when the KubeInvaders resource is deleted.
+func (r *KubeInvadersReconciler) reconcileDemo(ctx context.Context, kinv *gamev1alpha1.KubeInvaders) error {
+	if !kinv.Spec.Demo.Enabled {
+		return nil
+	}
+
+	replicas := int32(8)
+	if kinv.Spec.Demo.Replicas != nil {
+		replicas = *kinv.Spec.Demo.Replicas
+	}
+	image := kinv.Spec.Demo.Image
+	if image == "" {
+		image = "docker.io/nginxinc/nginx-unprivileged:stable"
+	}
+
+	for _, nsName := range kinv.Spec.TargetNamespaces {
+		ns := &corev1.Namespace{}
+		if err := r.Get(ctx, types.NamespacedName{Name: nsName}, ns); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return err
+			}
+			ns = &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nsName,
+					Labels: map[string]string{createdByLabel: ownerID(kinv)},
+				},
+			}
+			if err := r.Create(ctx, ns); err != nil && !apierrors.IsAlreadyExists(err) {
+				return err
+			}
+		}
+
+		labels := map[string]string{
+			"app.kubernetes.io/name":       demoDeployName,
+			"app.kubernetes.io/managed-by": "kubeinvaders-operator",
+			createdByLabel:                 ownerID(kinv),
+		}
+		deploy := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{Name: demoDeployName, Namespace: nsName},
+		}
+		if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, deploy, func() error {
+			deploy.Labels = labels
+			deploy.Spec.Replicas = &replicas
+			if deploy.Spec.Selector == nil {
+				deploy.Spec.Selector = &metav1.LabelSelector{
+					MatchLabels: map[string]string{"app.kubernetes.io/name": demoDeployName},
+				}
+			}
+			deploy.Spec.Template.Labels = map[string]string{"app.kubernetes.io/name": demoDeployName}
+			deploy.Spec.Template.Spec.Containers = []corev1.Container{
+				{
+					Name:  "alien",
+					Image: image,
+					Ports: []corev1.ContainerPort{{ContainerPort: 8080, Protocol: corev1.ProtocolTCP}},
+				},
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// deleteDemoResources removes demo deployments and any namespaces this CR created.
+func (r *KubeInvadersReconciler) deleteDemoResources(ctx context.Context, kinv *gamev1alpha1.KubeInvaders) error {
+	for _, nsName := range kinv.Spec.TargetNamespaces {
+		ns := &corev1.Namespace{}
+		if err := r.Get(ctx, types.NamespacedName{Name: nsName}, ns); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return err
+		}
+		if ns.Labels[createdByLabel] == ownerID(kinv) {
+			// We created the whole namespace: deleting it removes the demo
+			// deployment with it.
+			if err := r.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
+				return err
+			}
+			continue
+		}
+		// Pre-existing namespace: only remove our demo deployment, if any.
+		deploy := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: demoDeployName, Namespace: nsName}}
+		if err := r.Get(ctx, types.NamespacedName{Name: demoDeployName, Namespace: nsName}, deploy); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return err
+		}
+		if deploy.Labels[createdByLabel] == ownerID(kinv) {
+			if err := r.Delete(ctx, deploy); err != nil && !apierrors.IsNotFound(err) {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// reconcileRoute manages an OpenShift Route (via unstructured, so the operator
+// has no hard dependency on OpenShift APIs) and returns the assigned host.
+// On clusters without the Route API it records a condition and returns "".
+func (r *KubeInvadersReconciler) reconcileRoute(ctx context.Context, kinv *gamev1alpha1.KubeInvaders) (string, error) {
+	route := &unstructured.Unstructured{}
+	route.SetGroupVersionKind(routeGVK)
+	route.SetName(kinv.Name)
+	route.SetNamespace(kinv.Namespace)
+
+	if !kinv.Spec.Route.Enabled {
+		err := r.Delete(ctx, route)
+		if err != nil && !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) {
+			return "", err
+		}
+		return "", nil
+	}
+
+	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, route, func() error {
+		route.SetLabels(labelsFor(kinv))
+		spec := map[string]interface{}{
+			"to": map[string]interface{}{
+				"kind": "Service",
+				"name": kinv.Name,
+			},
+			"port": map[string]interface{}{
+				"targetPort": "http",
+			},
+		}
+		if kinv.Spec.Route.Host != "" {
+			spec["host"] = kinv.Spec.Route.Host
+		}
+		if kinv.Spec.Route.TLS {
+			spec["tls"] = map[string]interface{}{
+				"termination":                   "edge",
+				"insecureEdgeTerminationPolicy": "Redirect",
+			}
+		}
+		if err := unstructured.SetNestedMap(route.Object, spec, "spec"); err != nil {
+			return err
+		}
+		return ctrl.SetControllerReference(kinv, route, r.Scheme)
+	})
+	if meta.IsNoMatchError(err) {
+		meta.SetStatusCondition(&kinv.Status.Conditions, metav1.Condition{
+			Type:    "RouteAvailable",
+			Status:  metav1.ConditionFalse,
+			Reason:  "RouteAPINotFound",
+			Message: "spec.route.enabled is set but this cluster has no route.openshift.io API; use spec.ingress instead",
+		})
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+
+	// Prefer the spec host (set explicitly or defaulted by OpenShift), fall
+	// back to the admitted host in status.
+	if host, found, _ := unstructured.NestedString(route.Object, "spec", "host"); found && host != "" {
+		return host, nil
+	}
+	ingresses, found, _ := unstructured.NestedSlice(route.Object, "status", "ingress")
+	if found && len(ingresses) > 0 {
+		if first, ok := ingresses[0].(map[string]interface{}); ok {
+			if host, ok := first["host"].(string); ok {
+				return host, nil
+			}
+		}
+	}
+	return "", nil
+}
+
+func ownerID(kinv *gamev1alpha1.KubeInvaders) string {
+	return fmt.Sprintf("%s.%s", kinv.Namespace, kinv.Name)
+}
+
+func (r *KubeInvadersReconciler) reconcileDeployment(ctx context.Context, kinv *gamev1alpha1.KubeInvaders, routeHost string) error {
 	labels := labelsFor(kinv)
 
 	image := kinv.Spec.Image
@@ -221,7 +429,7 @@ func (r *KubeInvadersReconciler) reconcileDeployment(ctx context.Context, kinv *
 
 	env := []corev1.EnvVar{
 		{Name: "NAMESPACE", Value: strings.Join(kinv.Spec.TargetNamespaces, ",")},
-		{Name: "APPLICATION_URL", Value: r.applicationURL(kinv)},
+		{Name: "APPLICATION_URL", Value: r.applicationURL(kinv, routeHost)},
 		{Name: "REDIS_HOST", Value: "127.0.0.1"},
 	}
 	env = append(env, kinv.Spec.ExtraEnv...)

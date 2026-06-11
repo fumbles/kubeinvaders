@@ -28,6 +28,45 @@ type IngressSpec struct {
 	TLSSecretName string `json:"tlsSecretName,omitempty"`
 }
 
+// DemoSpec configures automatic demo workloads in the target namespaces, so a
+// freshly created KubeInvaders instance has aliens to shoot without any manual
+// setup.
+type DemoSpec struct {
+	// Enabled creates each target namespace (if missing) and deploys a demo
+	// "aliens" workload in it. Namespaces created this way are deleted again
+	// when the KubeInvaders resource is deleted; pre-existing namespaces are
+	// left untouched.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Replicas is the number of pods per demo deployment.
+	// +kubebuilder:default=8
+	// +kubebuilder:validation:Minimum=1
+	// +optional
+	Replicas *int32 `json:"replicas,omitempty"`
+
+	// Image is the demo workload image.
+	// +kubebuilder:default="docker.io/nginxinc/nginx-unprivileged:stable"
+	// +optional
+	Image string `json:"image,omitempty"`
+}
+
+// RouteSpec configures an OpenShift Route for the KubeInvaders UI.
+// Ignored (with a status condition) on clusters without the Route API.
+type RouteSpec struct {
+	// Enabled creates an OpenShift Route for the KubeInvaders web UI.
+	// +optional
+	Enabled bool `json:"enabled,omitempty"`
+
+	// Host is the route hostname. Leave empty to let OpenShift generate one.
+	// +optional
+	Host string `json:"host,omitempty"`
+
+	// TLS enables edge TLS termination on the Route.
+	// +optional
+	TLS bool `json:"tls,omitempty"`
+}
+
 // KubeInvadersSpec defines the desired state of KubeInvaders.
 type KubeInvadersSpec struct {
 	// TargetNamespaces are the namespaces where KubeInvaders performs chaos
@@ -64,7 +103,20 @@ type KubeInvadersSpec struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Application URL"
 	ApplicationURL string `json:"applicationURL,omitempty"`
 
-	// Ingress configures the optional Ingress for the web UI.
+	// Demo automatically creates the target namespaces and demo workloads to
+	// shoot at, so no manual setup is needed.
+	// +optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,order=4,displayName="Demo Workloads"
+	Demo DemoSpec `json:"demo,omitempty"`
+
+	// Route configures an OpenShift Route for the web UI. The route host is
+	// exported to the game as APPLICATION_URL automatically.
+	// +optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,order=5,displayName="Route (OpenShift)"
+	Route RouteSpec `json:"route,omitempty"`
+
+	// Ingress configures the optional Ingress for the web UI (non-OpenShift
+	// clusters; on OpenShift prefer route).
 	// +optional
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Ingress"
 	Ingress IngressSpec `json:"ingress,omitempty"`

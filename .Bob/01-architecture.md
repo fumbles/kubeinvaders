@@ -13,6 +13,10 @@ kubeinvaders-operator (controller-manager Deployment)
         ├── Deployment       (the game: OpenResty + Redis + Lua, port 8080)
         ├── Service          (ClusterIP/NodePort/LoadBalancer → port 8080)
         ├── Ingress          (optional, spec.ingress.enabled)
+        ├── Route            (optional, spec.route.enabled — OpenShift, via unstructured;
+        │                     assigned host fed back into APPLICATION_URL)
+        ├── Namespaces + demo "aliens" Deployments  (optional, spec.demo.enabled;
+        │                     labeled game.kubeinvaders.io/created-by, cleaned up by finalizer)
         ├── ServiceAccount   (mounted into the game pod)
         ├── ClusterRole      (chaos permissions, named kubeinvaders-<ns>-<name>)
         └── ClusterRoleBinding
