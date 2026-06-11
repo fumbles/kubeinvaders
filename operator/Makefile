@@ -1,5 +1,5 @@
 # VERSION defines the project version for the bundle.
-VERSION ?= 0.1.0
+VERSION ?= 0.1.1
 
 # CHANNELS define the bundle channels used in the bundle.
 CHANNELS ?= alpha
@@ -40,7 +40,12 @@ GOBIN=$(shell go env GOBIN)
 endif
 
 # CONTAINER_TOOL defines the container tool to be used for building images.
-CONTAINER_TOOL ?= docker
+# Auto-detects docker, falls back to podman. Multi-arch targets branch on this:
+# docker uses buildx, podman uses manifest lists.
+CONTAINER_TOOL ?= $(shell command -v docker >/dev/null 2>&1 && echo docker || echo podman)
+IS_PODMAN := $(findstring podman,$(notdir $(CONTAINER_TOOL)))
+# podman loads images locally by default and has no --load flag
+LOAD_FLAG := $(if $(IS_PODMAN),,--load)
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 SHELL = /usr/bin/env bash -o pipefail
@@ -89,7 +94,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager (local, native arch).
-	$(CONTAINER_TOOL) build --load -t $(IMG) .
+	$(CONTAINER_TOOL) build $(LOAD_FLAG) -t $(IMG) .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
@@ -98,12 +103,18 @@ docker-push: ## Push docker image with the manager.
 # PLATFORMS defines the target platforms for the manager image to support multi-arch.
 PLATFORMS ?= linux/arm64,linux/amd64
 .PHONY: docker-buildx
-docker-buildx: ## Build and push docker image for the manager for cross-platform support.
+docker-buildx: ## Build and push a multi-arch manager image (docker buildx or podman manifest).
+ifeq ($(IS_PODMAN),podman)
+	- $(CONTAINER_TOOL) manifest rm $(IMG)
+	$(CONTAINER_TOOL) build --platform=$(PLATFORMS) --manifest $(IMG) -f Dockerfile .
+	$(CONTAINER_TOOL) manifest push --all $(IMG) docker://$(IMG)
+else
 	- $(CONTAINER_TOOL) buildx create --name kubeinvaders-operator-builder
 	$(CONTAINER_TOOL) buildx use kubeinvaders-operator-builder
 	$(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag $(IMG) -f Dockerfile . || \
 		{ $(CONTAINER_TOOL) buildx rm kubeinvaders-operator-builder; exit 1; }
 	- $(CONTAINER_TOOL) buildx rm kubeinvaders-operator-builder
+endif
 
 ##@ Deployment
 
@@ -180,7 +191,7 @@ bundle: manifests kustomize operator-sdk ## Generate bundle manifests and metada
 
 .PHONY: bundle-build
 bundle-build: ## Build the bundle image (local, native arch).
-	$(CONTAINER_TOOL) build --load -f bundle.Dockerfile -t $(BUNDLE_IMG) .
+	$(CONTAINER_TOOL) build $(LOAD_FLAG) -f bundle.Dockerfile -t $(BUNDLE_IMG) .
 
 .PHONY: bundle-push
 bundle-push: ## Push the bundle image.
@@ -188,11 +199,17 @@ bundle-push: ## Push the bundle image.
 
 .PHONY: bundle-buildx
 bundle-buildx: ## Build and push a multi-arch bundle image.
+ifeq ($(IS_PODMAN),podman)
+	- $(CONTAINER_TOOL) manifest rm $(BUNDLE_IMG)
+	$(CONTAINER_TOOL) build --platform=$(PLATFORMS) --manifest $(BUNDLE_IMG) -f bundle.Dockerfile .
+	$(CONTAINER_TOOL) manifest push --all $(BUNDLE_IMG) docker://$(BUNDLE_IMG)
+else
 	- $(CONTAINER_TOOL) buildx create --name kubeinvaders-operator-builder
 	$(CONTAINER_TOOL) buildx use kubeinvaders-operator-builder
 	$(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag $(BUNDLE_IMG) -f bundle.Dockerfile . || \
 		{ $(CONTAINER_TOOL) buildx rm kubeinvaders-operator-builder; exit 1; }
 	- $(CONTAINER_TOOL) buildx rm kubeinvaders-operator-builder
+endif
 
 .PHONY: opm
 OPM = $(LOCALBIN)/opm
@@ -225,8 +242,14 @@ catalog: opm ## Generate the file-based catalog under catalog/.
 
 .PHONY: catalog-buildx
 catalog-buildx: catalog ## Build and push a multi-arch catalog image.
+ifeq ($(IS_PODMAN),podman)
+	- $(CONTAINER_TOOL) manifest rm $(CATALOG_IMG)
+	$(CONTAINER_TOOL) build --platform=$(PLATFORMS) --manifest $(CATALOG_IMG) -f catalog.Dockerfile .
+	$(CONTAINER_TOOL) manifest push --all $(CATALOG_IMG) docker://$(CATALOG_IMG)
+else
 	- $(CONTAINER_TOOL) buildx create --name kubeinvaders-operator-builder
 	$(CONTAINER_TOOL) buildx use kubeinvaders-operator-builder
 	$(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag $(CATALOG_IMG) -f catalog.Dockerfile . || \
 		{ $(CONTAINER_TOOL) buildx rm kubeinvaders-operator-builder; exit 1; }
 	- $(CONTAINER_TOOL) buildx rm kubeinvaders-operator-builder
+endif

@@ -74,10 +74,11 @@ run_checks() {
   local failed=0
 
   step "Tooling"
-  for tool in go docker operator-sdk; do
+  for tool in go operator-sdk; do
     command -v "$tool" >/dev/null || die "$tool is required but not installed"
     printf '  %-14s %s\n' "$tool" "$(command -v "$tool")"
   done
+  printf '  %-14s %s\n' "containers" "$CONTAINER_TOOL ($(command -v "$CONTAINER_TOOL"))"
 
   step "gofmt (formatting)"
   local unformatted
@@ -224,6 +225,15 @@ usage() {
 }
 
 # ---------- main --------------------------------------------------------------
+
+# Container tool: docker or podman (override with CONTAINER_TOOL=...)
+if [[ -z "${CONTAINER_TOOL:-}" ]]; then
+  if command -v docker >/dev/null 2>&1; then CONTAINER_TOOL=docker
+  elif command -v podman >/dev/null 2>&1; then CONTAINER_TOOL=podman
+  else die "docker or podman is required but neither is installed"
+  fi
+fi
+export CONTAINER_TOOL
 
 COMMAND=""
 SHIP=false

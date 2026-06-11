@@ -15,28 +15,31 @@ metadata:
             "name": "kubeinvaders-sample"
           },
           "spec": {
-            "image": "docker.io/luckysideburn/kubeinvaders:latest",
+            "demo": {
+              "enabled": true,
+              "replicas": 8
+            },
             "ingress": {
               "enabled": false
             },
-            "replicas": 1,
-            "serviceType": "ClusterIP",
+            "route": {
+              "enabled": true
+            },
             "targetNamespaces": [
-              "namespace1",
-              "namespace2"
+              "kubeinvaders-demo"
             ]
           }
         }
       ]
     capabilities: Basic Install
     categories: Developer Tools, Monitoring
-    containerImage: docker.io/fumbles/kubeinvaders-operator:v0.1.0
-    createdAt: "2026-06-11T20:12:28Z"
+    containerImage: docker.io/fumbles/kubeinvaders-operator:v0.1.1
+    createdAt: "2026-06-11T21:28:31Z"
     operators.operatorframework.io/builder: operator-sdk-v1.42.2
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
     repository: https://github.com/lucky-sideburn/kubeinvaders
     support: KubeInvaders Community
-  name: kubeinvaders-operator.v0.1.0
+  name: kubeinvaders-operator.v0.1.1
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -76,6 +79,16 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:podCount
       - description: |-
+          Demo automatically creates the target namespaces and demo workloads to
+          shoot at, so no manual setup is needed.
+        displayName: Demo Workloads
+        path: demo
+      - description: |-
+          Route configures an OpenShift Route for the web UI. The route host is
+          exported to the game as APPLICATION_URL automatically.
+        displayName: Route (OpenShift)
+        path: route
+      - description: |-
           ApplicationURL is the externally visible URL of the game, exported as the
           APPLICATION_URL environment variable. Defaults to the Ingress host when
           the Ingress is enabled.
@@ -86,7 +99,9 @@ spec:
           container (e.g. ALIENPROXIMITY, HITSLIMIT, UPDATETIME, DISABLE_TLS).
         displayName: Extra Environment Variables
         path: extraEnv
-      - description: Ingress configures the optional Ingress for the web UI.
+      - description: |-
+          Ingress configures the optional Ingress for the web UI (non-OpenShift
+          clusters; on OpenShift prefer route).
         displayName: Ingress
         path: ingress
       - description: Resources are the compute resources for the KubeInvaders container.
@@ -148,6 +163,16 @@ spec:
     spec:
       clusterPermissions:
       - rules:
+        - apiGroups:
+          - ""
+          resources:
+          - namespaces
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - watch
         - apiGroups:
           - ""
           resources:
@@ -256,6 +281,18 @@ spec:
           - update
           - watch
         - apiGroups:
+          - route.openshift.io
+          resources:
+          - routes
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
           - subresources.kubevirt.io
           resources:
           - virtualmachines/restart
@@ -292,7 +329,7 @@ spec:
                 - --health-probe-bind-address=:8081
                 command:
                 - /manager
-                image: docker.io/fumbles/kubeinvaders-operator:v0.1.0
+                image: docker.io/fumbles/kubeinvaders-operator:v0.1.1
                 livenessProbe:
                   httpGet:
                     path: /healthz
@@ -385,4 +422,5 @@ spec:
   provider:
     name: KubeInvaders Community
     url: https://github.com/lucky-sideburn/kubeinvaders
-  version: 0.1.0
+  replaces: kubeinvaders-operator.v0.1.0
+  version: 0.1.1

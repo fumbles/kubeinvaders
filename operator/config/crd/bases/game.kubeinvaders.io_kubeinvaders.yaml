@@ -58,6 +58,29 @@ spec:
                   APPLICATION_URL environment variable. Defaults to the Ingress host when
                   the Ingress is enabled.
                 type: string
+              demo:
+                description: |-
+                  Demo automatically creates the target namespaces and demo workloads to
+                  shoot at, so no manual setup is needed.
+                properties:
+                  enabled:
+                    description: |-
+                      Enabled creates each target namespace (if missing) and deploys a demo
+                      "aliens" workload in it. Namespaces created this way are deleted again
+                      when the KubeInvaders resource is deleted; pre-existing namespaces are
+                      left untouched.
+                    type: boolean
+                  image:
+                    default: docker.io/nginxinc/nginx-unprivileged:stable
+                    description: Image is the demo workload image.
+                    type: string
+                  replicas:
+                    default: 8
+                    description: Replicas is the number of pods per demo deployment.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                type: object
               extraEnv:
                 description: |-
                   ExtraEnv are additional environment variables for the KubeInvaders
@@ -183,7 +206,9 @@ spec:
                 description: Image is the KubeInvaders container image.
                 type: string
               ingress:
-                description: Ingress configures the optional Ingress for the web UI.
+                description: |-
+                  Ingress configures the optional Ingress for the web UI (non-OpenShift
+                  clusters; on OpenShift prefer route).
                 properties:
                   annotations:
                     additionalProperties:
@@ -271,6 +296,23 @@ spec:
                       otherwise to an implementation-defined value. Requests cannot exceed Limits.
                       More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                     type: object
+                type: object
+              route:
+                description: |-
+                  Route configures an OpenShift Route for the web UI. The route host is
+                  exported to the game as APPLICATION_URL automatically.
+                properties:
+                  enabled:
+                    description: Enabled creates an OpenShift Route for the KubeInvaders
+                      web UI.
+                    type: boolean
+                  host:
+                    description: Host is the route hostname. Leave empty to let OpenShift
+                      generate one.
+                    type: string
+                  tls:
+                    description: TLS enables edge TLS termination on the Route.
+                    type: boolean
                 type: object
               serviceType:
                 default: ClusterIP
