@@ -76,6 +76,7 @@ local disable_tls = disable_tls_env == "true" or disable_tls_env == "1" or disab
 
 local namespace = arg["namespace"]
 local replicas = tonumber(arg["replicas"])
+local delta = tonumber(arg["delta"])
 local deploy_name = arg["name"]
 
 ngx.header['Access-Control-Allow-Origin'] = '*'
@@ -83,9 +84,10 @@ ngx.header['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
 ngx.header['Access-Control-Allow-Headers'] = 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range'
 ngx.header['Access-Control-Expose-Headers'] = 'Content-Length,Content-Range'
 
-if not namespace or namespace == "" or replicas == nil or replicas < 0 then
+if not namespace or namespace == "" or (replicas == nil and delta == nil)
+    or (replicas ~= nil and replicas < 0) then
   ngx.status = 400
-  ngx.say('{"error": "namespace and replicas (>= 0) are required"}')
+  ngx.say('{"error": "namespace and replicas (>= 0) or delta are required"}')
   return
 end
 
@@ -179,7 +181,12 @@ end
 
 local results = {}
 for _, t in ipairs(targets) do
-  local ok, status = scale_deployment(t.name, replicas)
+  local target_replicas = replicas
+  if target_replicas == nil then
+    -- Relative scaling, clamped to a sane range.
+    target_replicas = math.max(0, math.min(30, t.previousReplicas + delta))
+  end
+  local ok, status = scale_deployment(t.name, target_replicas)
   table.insert(results, {
     name = t.name,
     previousReplicas = t.previousReplicas,

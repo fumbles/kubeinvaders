@@ -644,7 +644,10 @@ function keyDownHandler(e) {
         }
         else if (e.keyCode == 82) {
             resetInvasion();
-            $('#alert_placeholder').replaceWith(alert_div + 'Latest action: Invasion reset</div>');
+        }
+        else if (e.keyCode == 70) {
+            rollFormation();
+            $('#alert_placeholder').replaceWith(alert_div + 'Latest action: Formation changed to ' + currentFormation + '</div>');
         }
     }
 }
@@ -775,10 +778,87 @@ var invasionDir = 1;
 var invasionBaseStep = 7;       // px per tick
 var invasionDescent = 16;       // px down per wall bounce
 var invasionGameOver = false;
+var invasionGameOverReason = 'landed';   // 'landed' | 'ship'
 var invasionWin = false;
 var invasionStarted = false;
 var invasionKills = 0;
 var scaledDeployments = [];     // [{name, previousReplicas}] from the win scale-down
+
+// Player lives: touching a living alien destroys the ship. Consequence:
+// every lost ship scales the wave's deployments +1 replica - the invasion grows.
+var playerLives = 3;
+var playerInvulnerableUntil = 0;
+
+// Random attack formations, re-rolled per wave ('f' to re-roll mid-game).
+var formations = ['grid', 'v', 'columns', 'wave', 'diamond'];
+var currentFormation = formations[Math.floor(Math.random() * formations.length)];
+
+function rollFormation() {
+    var next = formations[Math.floor(Math.random() * formations.length)];
+    if (next === currentFormation) {
+        next = formations[(formations.indexOf(next) + 1) % formations.length];
+    }
+    currentFormation = next;
+    aliens = []; // force the reconciler to re-place everyone in the new shape
+}
+
+function formationPosition(idx) {
+    var w = Math.max(canvas.width, 600);
+    var cx = w / 2;
+    var clampX = function (x) { return Math.min(Math.max(x, 10), w - 60); };
+    var clampY = function (y) { return Math.max(y, 10); };
+    var col, row;
+    switch (currentFormation) {
+        case 'v':
+            row = Math.ceil(idx / 2);
+            var side = (idx % 2 === 0) ? -1 : 1;
+            return { x: clampX(cx + side * row * 55), y: clampY(10 + row * 32) };
+        case 'columns':
+            col = idx % 4;
+            row = Math.floor(idx / 4);
+            return { x: clampX(80 + col * Math.max(120, (w - 200) / 4)), y: clampY(10 + row * 48) };
+        case 'wave':
+            col = idx % 12;
+            row = Math.floor(idx / 12);
+            return { x: clampX(10 + col * 58), y: clampY(45 + row * 70 + Math.round(Math.sin(col * 0.9) * 28)) };
+        case 'diamond':
+            var ring = Math.floor(idx / 8) + 1;
+            var theta = (idx % 8) * (Math.PI / 4);
+            return {
+                x: clampX(cx + Math.round(Math.cos(theta) * ring * 90)),
+                y: clampY(115 + Math.round(Math.sin(theta) * ring * 45))
+            };
+        default: // grid
+            col = idx % maxAliensPerRow;
+            row = Math.floor(idx / maxAliensPerRow);
+            return { x: clampX(10 + col * 60), y: clampY(10 + row * aliensIncrementY) };
+    }
+}
+
+function bumpInvasionReplicas(delta) {
+    var oReq = new XMLHttpRequest();
+    openKubeApiRequest(oReq, "GET", "/kube/deployments/scale?namespace=" + encodeURIComponent(namespace) + "&delta=" + delta);
+    oReq.send();
+}
+
+function playerHit() {
+    playerLives -= 1;
+    playerInvulnerableUntil = Date.now() + 2000;
+    // Consequence: the invasion grows by one replica per lost ship.
+    bumpInvasionReplicas(1);
+    // Knock the fleet back to the top, classic-style.
+    invasionOffsetX = 0;
+    invasionOffsetY = 0;
+    invasionDir = 1;
+    if (playerLives <= 0) {
+        invasionGameOverReason = 'ship';
+        invasionGameOver = true;
+        $('#alert_placeholder').replaceWith(alert_div + 'Ship destroyed! No lives left.</div>');
+    }
+    else {
+        $('#alert_placeholder').replaceWith(alert_div + 'Ship destroyed! The invasion grows (+1 replica). Lives left: ' + playerLives + '</div>');
+    }
+}
 
 // Multiple rockets in flight + autofire while holding space.
 // firePressed is polled from the game loop (like the arrow keys) so firing
@@ -836,10 +916,15 @@ function resetInvasion() {
     invasionOffsetY = 0;
     invasionDir = 1;
     invasionGameOver = false;
+    invasionGameOverReason = 'landed';
     invasionWin = false;
     invasionStarted = false;
     invasionKills = 0;
+    playerLives = 3;
+    playerInvulnerableUntil = 0;
     rockets = [];
+    rollFormation();
+    $('#alert_placeholder').replaceWith(alert_div + 'New wave incoming - formation: ' + currentFormation + '</div>');
 }
 
 window.setInterval(function marchInvasion() {
@@ -860,6 +945,23 @@ window.setInterval(function marchInvasion() {
         return;
     }
     invasionStarted = true;
+
+    // Contact with a living alien destroys the ship (with a 12px forgiveness
+    // margin and a 2s invulnerability window after each hit).
+    if (Date.now() > playerInvulnerableUntil) {
+        for (var ci = 0; ci < active.length; ci++) {
+            var ax = active[ci].x + invasionOffsetX;
+            var ay = active[ci].y + invasionOffsetY;
+            if (spaceshipX + spaceshipWidth - 12 >= ax && spaceshipX + 12 <= ax + aliensWidth &&
+                spaceshipY + spaceshipHeight - 12 >= ay && spaceshipY + 12 <= ay + 40) {
+                playerHit();
+                if (invasionGameOver) {
+                    return;
+                }
+                break;
+            }
+        }
+    }
 
     // Classic rule: the fewer invaders left, the faster they march.
     var speed = invasionBaseStep + Math.max(0, 16 - active.length);
@@ -896,13 +998,19 @@ window.setInterval(function draw() {
             drawAlien(aliens[i]["x"] + invasionOffsetX, aliens[i]["y"] + invasionOffsetY, aliens[i]["name"], aliens[i]["status"]);
         }
     }
-    drawSpaceship();
+    // Blink the ship while invulnerable after a hit.
+    if (Date.now() > playerInvulnerableUntil || Math.floor(Date.now() / 120) % 2 === 0) {
+        drawSpaceship();
+    }
 
     if (invasionGameOver) {
         ctx.save();
         ctx.fillStyle = '#FF3333';
         ctx.font = "44px 'Ubuntu Mono'";
-        ctx.fillText('GAME OVER - THE PODS HAVE LANDED', Math.max(10, canvas.width / 2 - 420), canvas.height / 2 - 20);
+        var gameOverMsg = (invasionGameOverReason === 'ship')
+            ? 'GAME OVER - SHIP DESTROYED'
+            : 'GAME OVER - THE PODS HAVE LANDED';
+        ctx.fillText(gameOverMsg, Math.max(10, canvas.width / 2 - 420), canvas.height / 2 - 20);
         ctx.fillStyle = 'white';
         ctx.font = "20px 'Ubuntu Mono'";
         ctx.fillText('pods destroyed: ' + invasionKills + "   -   press 'r' to defend the cluster again", Math.max(10, canvas.width / 2 - 280), canvas.height / 2 + 20);
@@ -1009,8 +1117,10 @@ window.setInterval(function draw() {
     ctx.fillText('press \'h\' for help!', 10, startYforHelp + 80);
 
     ctx.fillText('Pods destroyed: ' + invasionKills, canvas.width - 260, 30);
+    ctx.fillText('Lives: ' + Array(Math.max(playerLives, 0) + 1).join('♥ '), canvas.width - 260, 50);
+    ctx.fillText('Formation: ' + currentFormation, canvas.width - 260, 70);
     if (!invasionEnabled) {
-        ctx.fillText('Invasion: paused', canvas.width - 260, 50);
+        ctx.fillText('Invasion: paused', canvas.width - 260, 90);
     }
 
     if (help) {
@@ -1021,7 +1131,8 @@ window.setInterval(function draw() {
         ctx.fillText('c => Display nodes switch', 10, 360);
         ctx.fillText('v => Display virtual machines (KubeVirt) switch', 10, 380);
         ctx.fillText('i => Pause or resume the invasion march', 10, 400);
-        ctx.fillText('r => Reset the invasion (after game over)', 10, 420);
+        ctx.fillText('r => Reset the invasion (after game over or win)', 10, 420);
+        ctx.fillText('f => Change attack formation', 10, 440);
     }
 }, 10)
 
@@ -1095,15 +1206,6 @@ window.setInterval(function setAliens() {
 
     aliens = [];
     if (pods.length > 0) {
-        for (k=10; k>0; k--) {
-            if (!contains(aliensY, k)) {
-                aliensY.push(k);
-            }
-        }
-        var x = 10;
-        var y = 10;
-        var yInc = false;
-
         for (i=0; i<pods.length; i++) {
             if (!podExists(pods[i].name)) {
                 var replaceWith = findReplace();
@@ -1112,28 +1214,11 @@ window.setInterval(function setAliens() {
                     cnt =+ 1;
                 }
                 else {
-                    if (!yInc) {
-                        y += 20;
-                        yInc = true;
-                    }
-                    else {
-                        y -= 20;
-                        yInc = false;
-                    }
-                    aliens.push({"name": pods[i].name, "status": pods[i].status, "x": x, "y": y, "active": true});
+                    // Positions come from the current attack formation; they
+                    // only depend on the index, so the 1s rebuild is stable.
+                    var pos = formationPosition(aliens.length);
+                    aliens.push({"name": pods[i].name, "status": pods[i].status, "x": pos.x, "y": pos.y, "active": true});
                     cnt =+ 1;
-                }
-                if (aliens.length % maxAliensPerRow == 0) {
-                    x = 10;
-                    y += aliensIncrementY;
-                    for (k=y+10; k>=y; k--) {
-                        if (!contains(aliensY, k)) {
-                            aliensY.push(k);
-                        }
-                    }
-                }
-                else {
-                    x += 60;
                 }
             }
         }
