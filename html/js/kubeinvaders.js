@@ -328,8 +328,12 @@ function getNamespaces() {
 
     var oReq = new XMLHttpRequest();
     oReq.onload = function () {
-        namespaces = this.responseText;
-        namespaces = namespaces.split(",");
+        // Trim each entry: stray whitespace/newlines in the response would
+        // otherwise end up inside Kubernetes API requests (namespace=foo%0A).
+        namespaces = this.responseText
+            .split(",")
+            .map(function (ns) { return ns.trim(); })
+            .filter(function (ns) { return ns !== ""; });
         namespaces_index = 0;
         namespace = namespaces[namespaces_index];
         console.log("[CURRENT-NAMESPACE] " + namespace);
