@@ -157,7 +157,7 @@ if not decode_ok or type(decoded_payload) ~= "table" then
 end
 
 decoded = decoded_payload
-ngx.log(ngx.ERR, "Decoded: " .. json.encode(decoded))
+ngx.log(ngx.DEBUG, "Decoded: " .. json.encode(decoded))
 
 if type(decoded["items"]) ~= "table" then
   ngx.say("[]")
