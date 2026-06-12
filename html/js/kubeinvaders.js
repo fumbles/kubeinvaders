@@ -573,7 +573,7 @@ function keyDownHandler(e) {
             }
         }
         else if (e.keyCode == 32) {
-            fireRocket();
+            firePressed = true;
         }
         else if (e.keyCode == 78) {
             switchNamespace();
@@ -661,6 +661,9 @@ function keyUpHandler(e) {
     }
     else if (e.key == "Down" || e.key == "ArrowDown") {
         downPressed = false;
+    }
+    else if (e.keyCode == 32) {
+        firePressed = false;
     }
 }
 
@@ -776,7 +779,11 @@ var invasionKills = 0;
 var scaledDeployments = [];     // [{name, previousReplicas}] from the win scale-down
 
 // Multiple rockets in flight + autofire while holding space.
+// firePressed is polled from the game loop (like the arrow keys) so firing
+// keeps working while moving: OS key auto-repeat only applies to the most
+// recently pressed key.
 var rockets = [];               // [{x, y}]
+var firePressed = false;
 var lastRocketFire = 0;
 var rocketCooldownMs = 180;
 var maxRockets = 5;
@@ -908,6 +915,9 @@ window.setInterval(function draw() {
         ctx.restore();
     }
     
+    if (firePressed) {
+        fireRocket();
+    }
     drawRockets();
 
     if (x + dx > canvas.width-ballRadius || x + dx < ballRadius) {
