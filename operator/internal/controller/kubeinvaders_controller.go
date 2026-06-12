@@ -174,6 +174,13 @@ func (r *KubeInvadersReconciler) reconcileClusterRBAC(ctx context.Context, kinv 
 				Verbs:     []string{"get", "list", "watch", "delete"},
 			},
 			{
+				// Scaling deployments powers the game's win mechanic:
+				// clearing a whole wave scales the target deployments to 0.
+				APIGroups: []string{"apps"},
+				Resources: []string{"deployments"},
+				Verbs:     []string{"get", "list", "watch", "update", "patch"},
+			},
+			{
 				APIGroups: []string{"batch", "extensions"},
 				Resources: []string{"jobs"},
 				Verbs:     []string{"get", "list", "watch", "create", "update", "patch", "delete"},

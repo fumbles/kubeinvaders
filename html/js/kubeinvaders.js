@@ -573,7 +573,7 @@ function keyDownHandler(e) {
             }
         }
         else if (e.keyCode == 32) {
-            shot = true
+            fireRocket();
         }
         else if (e.keyCode == 78) {
             switchNamespace();
@@ -689,7 +689,7 @@ function drawAlien(alienX, alienY, name, status) {
     ctx.closePath();
 }
 
-function checkRocketAlienCollision() {
+function checkRocketAlienCollision(rocket) {
     // AABB collision against the aliens' effective (marching) positions.
     var rocketSize = 20;
     var alienHeight = 40;
@@ -699,9 +699,8 @@ function checkRocketAlienCollision() {
         }
         var ex = aliens[i]["x"] + invasionOffsetX;
         var ey = aliens[i]["y"] + invasionOffsetY;
-        if (rocketX + rocketSize >= ex && rocketX <= ex + aliensWidth &&
-            rocketY + rocketSize >= ey && rocketY <= ey + alienHeight) {
-            collisionDetected = true;
+        if (rocket.x + rocketSize >= ex && rocket.x <= ex + aliensWidth &&
+            rocket.y + rocketSize >= ey && rocket.y <= ey + alienHeight) {
             aliens[i]["status"] = "killed";
             invasionKills += 1;
             // Aliens might be updated before new pods are fetched
@@ -731,33 +730,21 @@ function shuffleAliens() {
     pods = pods.sort(() => Math.random() - 0.5)
 }
 
-function drawRocket() {
+function drawRockets() {
     var image = new Image(); // Image constructor
     image.src = './images/kuberocket.png';
-    ctx.drawImage(image, rocketX, rocketY, 20, 20);
+    for (var r = rockets.length - 1; r >= 0; r--) {
+        rockets[r].y -= rocketSpeed;
+        if (rockets[r].y < -20) {
+            rockets.splice(r, 1);
+            continue;
+        }
+        ctx.drawImage(image, rockets[r].x, rockets[r].y, 20, 20);
+        if (checkRocketAlienCollision(rockets[r])) {
+            rockets.splice(r, 1);
+        }
+    }
     ctx.closePath();
-
-    if (checkRocketAlienCollision()) {
-        rocketY = -100;
-        rocketX = -100;
-        collisionDetected = false;
-        return
-    }
-
-    if (shot && rocketLaunched) {
-        if (rocketY < 0) {
-            shot = false;
-            rocketLaunched = false;
-        }
-        else {
-            rocketY = rocketY -= rocketSpeed;
-        }
-    }
-    else {
-        rocketX = spaceshipX + (spaceshipWidth / 3);
-        rocketY = spaceshipY;
-        rocketLaunched = true
-    }
 }
 
 function drawSpaceship() {
@@ -780,30 +767,90 @@ var invasionEnabled = true;     // toggle with 'i'
 var invasionOffsetX = 0;
 var invasionOffsetY = 0;
 var invasionDir = 1;
-var invasionBaseStep = 4;       // px per tick
-var invasionDescent = 14;       // px down per wall bounce
+var invasionBaseStep = 7;       // px per tick
+var invasionDescent = 16;       // px down per wall bounce
 var invasionGameOver = false;
+var invasionWin = false;
+var invasionStarted = false;
 var invasionKills = 0;
+var scaledDeployments = [];     // [{name, previousReplicas}] from the win scale-down
+
+// Multiple rockets in flight + autofire while holding space.
+var rockets = [];               // [{x, y}]
+var lastRocketFire = 0;
+var rocketCooldownMs = 180;
+var maxRockets = 5;
+
+function fireRocket() {
+    if (invasionGameOver || invasionWin) {
+        return;
+    }
+    var now = Date.now();
+    if (now - lastRocketFire < rocketCooldownMs || rockets.length >= maxRockets) {
+        return;
+    }
+    lastRocketFire = now;
+    rockets.push({ x: spaceshipX + (spaceshipWidth / 3), y: spaceshipY });
+}
+
+function scaleNamespaceDeployments(replicas) {
+    var oReq = new XMLHttpRequest();
+    oReq.onload = function () {
+        var parsed = parseJsonResponseOrNull(this, "GET /kube/deployments/scale");
+        if (parsed && Array.isArray(parsed)) {
+            scaledDeployments = parsed;
+        }
+    };
+    openKubeApiRequest(oReq, "GET", "/kube/deployments/scale?namespace=" + encodeURIComponent(namespace) + "&replicas=" + replicas);
+    oReq.send();
+}
+
+function restoreScaledDeployments() {
+    scaledDeployments.forEach(function (d) {
+        if (!d.name) {
+            return;
+        }
+        var oReq = new XMLHttpRequest();
+        openKubeApiRequest(oReq, "GET", "/kube/deployments/scale?namespace=" + encodeURIComponent(namespace)
+            + "&name=" + encodeURIComponent(d.name)
+            + "&replicas=" + (d.previousReplicas > 0 ? d.previousReplicas : 1));
+        oReq.send();
+    });
+    scaledDeployments = [];
+}
 
 function resetInvasion() {
+    if (invasionWin) {
+        restoreScaledDeployments();
+    }
     invasionOffsetX = 0;
     invasionOffsetY = 0;
     invasionDir = 1;
     invasionGameOver = false;
+    invasionWin = false;
+    invasionStarted = false;
     invasionKills = 0;
+    rockets = [];
 }
 
 window.setInterval(function marchInvasion() {
-    if (!invasionEnabled || invasionGameOver || !game_mode_switch) {
+    if (!invasionEnabled || invasionGameOver || invasionWin || !game_mode_switch) {
         return;
     }
     var active = aliens.filter(function (a) { return a.active; });
     if (active.length === 0) {
+        // Cleared the whole wave: scale the deployments to 0 before the
+        // ReplicaSets can respawn them. That's the win.
+        if (invasionStarted) {
+            invasionWin = true;
+            scaleNamespaceDeployments(0);
+        }
         return;
     }
+    invasionStarted = true;
 
     // Classic rule: the fewer invaders left, the faster they march.
-    var speed = invasionBaseStep + Math.max(0, 12 - active.length);
+    var speed = invasionBaseStep + Math.max(0, 16 - active.length);
 
     var minX = Infinity, maxX = -Infinity, maxY = -Infinity;
     active.forEach(function (a) {
@@ -827,7 +874,7 @@ window.setInterval(function marchInvasion() {
     if (maxY >= canvas.height - 60) {
         invasionGameOver = true;
     }
-}, 600);
+}, 350);
 
 window.setInterval(function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -849,10 +896,19 @@ window.setInterval(function draw() {
         ctx.fillText('pods destroyed: ' + invasionKills + "   -   press 'r' to defend the cluster again", Math.max(10, canvas.width / 2 - 280), canvas.height / 2 + 20);
         ctx.restore();
     }
-    
-    if (shot && !collisionDetected) {
-        drawRocket();
+
+    if (invasionWin) {
+        ctx.save();
+        ctx.fillStyle = '#33FF66';
+        ctx.font = "44px 'Ubuntu Mono'";
+        ctx.fillText('YOU WIN - WAVE CLEARED', Math.max(10, canvas.width / 2 - 300), canvas.height / 2 - 20);
+        ctx.fillStyle = 'white';
+        ctx.font = "20px 'Ubuntu Mono'";
+        ctx.fillText('deployments scaled to 0   -   pods destroyed: ' + invasionKills + "   -   press 'r' for a new wave", Math.max(10, canvas.width / 2 - 360), canvas.height / 2 + 20);
+        ctx.restore();
     }
+    
+    drawRockets();
 
     if (x + dx > canvas.width-ballRadius || x + dx < ballRadius) {
         dx = -dx;
@@ -865,7 +921,7 @@ window.setInterval(function draw() {
         spaceshipY = 340;
         
         if (getRandomInt(100) < randomFactor) {
-            shot = true;
+            fireRocket();
         }
         
         if (autoPilotDirection == 0) {

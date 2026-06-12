@@ -163,7 +163,7 @@ var rocketLaunched = false;
 // Rocket position
 var rocketX = -400;
 var rocketY = -400;
-var rocketSpeed = 7;
+var rocketSpeed = 11;
 
 var collisionDetected = false;
 
