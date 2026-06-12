@@ -170,6 +170,17 @@ if not disable_tls and ca_cert and ca_cert ~= "" then
   end
 end
 
+-- In-cluster fallback: use the ServiceAccount CA so TLS verification works
+-- against the cluster API server (its cert is signed by the cluster CA).
+if not disable_tls and not request_opts.cafile then
+  local sa_ca = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+  local sa_ca_f = io.open(sa_ca, "r")
+  if sa_ca_f then
+    sa_ca_f:close()
+    request_opts.cafile = sa_ca
+  end
+end
+
 local ok, statusCode, headers, statusText = https.request(request_opts)
 
 if action == "list" then

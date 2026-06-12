@@ -138,6 +138,16 @@ if not disable_tls and ca_cert and ca_cert ~= "" then
     request_opts.cafile = ca_file_path
   end
 end
+-- In-cluster fallback: use the ServiceAccount CA so TLS verification works
+-- against the cluster API server (its cert is signed by the cluster CA).
+if not disable_tls and not request_opts.cafile then
+  local sa_ca = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+  local sa_ca_f = io.open(sa_ca, "r")
+  if sa_ca_f then
+    sa_ca_f:close()
+    request_opts.cafile = sa_ca
+  end
+end
 
 local ok, statusCode, headers, statusText = https.request(request_opts)
 
@@ -147,17 +157,20 @@ ngx.log(ngx.INFO, statusCode)
 ngx.log(ngx.INFO, statusText)
 
 nodes["items"] = {}
-for k,v in ipairs(resp) do
-  ngx.log(ngx.INFO, k)
-  decoded = json.decode(v)
-  if decoded["kind"] == "NodeList" then
-    for k2,v2 in ipairs(decoded["items"]) do
-      -- TODO: masters should be included?
-      -- if not v2["metadata"]["labels"]["node-role.kubernetes.io/master"] then
-      ngx.log(ngx.INFO, "found node " .. v2["metadata"]["name"])
-      table.insert(nodes["items"], { name = v2["metadata"]["name"], status = "ready" })
-      --end
-    end
+local resp_body = table.concat(resp)
+local decode_ok, decode_err = pcall(function() decoded = json.decode(resp_body) end)
+if not decode_ok then
+  ngx.log(ngx.ERR, "[node.lua] JSON decode failed: " .. tostring(decode_err))
+  ngx.say(json.encode(nodes))
+  return
+end
+if decoded["kind"] == "NodeList" then
+  for k2,v2 in ipairs(decoded["items"]) do
+    -- TODO: masters should be included?
+    -- if not v2["metadata"]["labels"]["node-role.kubernetes.io/master"] then
+    ngx.log(ngx.INFO, "found node " .. v2["metadata"]["name"])
+    table.insert(nodes["items"], { name = v2["metadata"]["name"], status = "ready" })
+    --end
   end
 end
 ngx.say(json.encode(nodes))

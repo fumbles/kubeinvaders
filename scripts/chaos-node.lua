@@ -202,6 +202,17 @@ local function create_request_opts(request_url, request_headers, request_method,
     end
   end
 
+  -- In-cluster fallback: use the ServiceAccount CA so TLS verification works
+  -- against the cluster API server (its cert is signed by the cluster CA).
+  if not disable_tls and not request_opts.cafile then
+    local sa_ca = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+    local sa_ca_f = io.open(sa_ca, "r")
+    if sa_ca_f then
+      sa_ca_f:close()
+      request_opts.cafile = sa_ca
+    end
+  end
+
   return request_opts
 end
 

@@ -103,6 +103,15 @@ local function k8s_request(url, method, body)
   if not disable_tls and ca_cert and ca_cert ~= "" then
     opts.cafile = ca_file_path
   end
+  -- In-cluster fallback: use the ServiceAccount CA so TLS verification works.
+  if not disable_tls and not opts.cafile then
+    local sa_ca = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+    local sa_ca_f = io.open(sa_ca, "r")
+    if sa_ca_f then
+      sa_ca_f:close()
+      opts.cafile = sa_ca
+    end
+  end
   local ok, status_code, _, _ = https.request(opts)
   return ok, status_code, table.concat(resp)
 end
