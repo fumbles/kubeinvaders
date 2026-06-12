@@ -28,13 +28,22 @@ function resolveFrontendBackendUrl(rawEndpoint) {
 
     var endpoint = rawEndpoint;
     if (!checkURLProtocol(endpoint)) {
-        endpoint = (clu_insecure ? "http://" : "https://") + endpoint;
+        // Use the page's own scheme: this URL is fetched by the browser, so a
+        // scheme mismatch (e.g. http XHR from an https page) gets blocked as
+        // mixed content. DISABLE_TLS only concerns backend->K8s API
+        // verification, never the browser connection.
+        endpoint = window.location.protocol + "//" + endpoint;
     }
 
     try {
         var parsed = new URL(endpoint);
         // Service names like "kube" are reachable in-cluster but not from the browser.
         if (parsed.hostname === "kube") {
+            return browserOrigin;
+        }
+        // If the configured host is where the user is already browsing, use the
+        // page origin verbatim (covers port/scheme differences cleanly).
+        if (parsed.hostname === window.location.hostname) {
             return browserOrigin;
         }
     } catch (error) {
