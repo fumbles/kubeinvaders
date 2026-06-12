@@ -785,8 +785,8 @@ var scaledDeployments = [];     // [{name, previousReplicas}] from the win scale
 var rockets = [];               // [{x, y}]
 var firePressed = false;
 var lastRocketFire = 0;
-var rocketCooldownMs = 180;
-var maxRockets = 5;
+var rocketCooldownMs = 110;
+var maxRockets = 8;
 
 function fireRocket() {
     if (invasionGameOver || invasionWin) {
