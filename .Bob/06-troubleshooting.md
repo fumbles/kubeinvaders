@@ -62,6 +62,22 @@ oc exec <pod> -- redis-cli -s /tmp/redis.sock ping   # → PONG
 
 **Debugging tip:** `daemonize yes` + `logfile ""` sends Redis startup errors to /dev/null. Run it in the foreground to see the real error: `oc exec <pod> -- redis-server /etc/redis/redis.conf --daemonize no`.
 
+### Game UI loads but all /kube/* XHRs fail (mixed content)
+
+**Symptom:** console full of `Mixed Content: The page at https://... requested an insecure XMLHttpRequest endpoint http://...`; no namespaces/pods/metrics.
+**Cause:** `DISABLE_TLS=true` in the pod env made the frontend build the backend URL with `http://` while the page is served over an https route — the browser blocks the requests.
+**Fix (commit `89e7e03`):** the frontend now always uses the page's own scheme. Also remove `DISABLE_TLS` from `spec.extraEnv` — the in-cluster CA fix made it unnecessary.
+
+### Aliens never appear; pod.lua logs "JSON decode failed"
+
+**Symptom:** nginx error log shows requests like `GET /kube/pods?...&namespace=kubeinvaders-demo%0A` (note the `%0A`).
+**Cause:** `/kube/namespaces` used `ngx.say`, which appends a newline; the env-based namespace fallback then sent `"<ns>\n"` to the Kubernetes API. Only bites the zero-config in-cluster flow — manually configured namespaces are trimmed by the UI.
+**Fix (commit `13cfdd4`):** `ngx.print` on the backend, `.trim()` per entry on the frontend.
+
+### In-cluster frontend gotchas (general)
+
+The browser-side config wizard is optional in-cluster: the Lua backend falls back to the pod's `TOKEN`/`NAMESPACE`/in-cluster API host when no `X-K8S-*` headers are sent. The env-fallback path was unexercised upstream — when debugging UI weirdness, first clear stale browser state (`localStorage.clear(); location.reload()`), then check the served JS (`curl -sk https://<route>/js/globalvars.js | head -90`) since nginx `sub_filter` injects env values into it at serve time.
+
 ## Cluster issues
 
 ### Catalog pod CrashLoopBackOff: "integrity check failed"
