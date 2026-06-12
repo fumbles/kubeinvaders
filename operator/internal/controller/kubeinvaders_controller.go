@@ -436,6 +436,7 @@ func (r *KubeInvadersReconciler) reconcileDeployment(ctx context.Context, kinv *
 		{Name: "NAMESPACE", Value: strings.Join(kinv.Spec.TargetNamespaces, ",")},
 		{Name: "APPLICATION_URL", Value: r.applicationURL(kinv, routeHost)},
 		{Name: "REDIS_HOST", Value: "127.0.0.1"},
+		{Name: "DISABLE_TLS", Value: "true"},
 	}
 	env = append(env, kinv.Spec.ExtraEnv...)
 

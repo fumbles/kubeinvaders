@@ -5,7 +5,7 @@ metadata:
     alm-examples: '[]'
     capabilities: Basic Install
     categories: Developer Tools, Monitoring
-    containerImage: docker.io/fumbles/kubeinvaders-operator:v0.1.3
+    containerImage: docker.io/fumbles/kubeinvaders-operator:v0.1.4
     repository: https://github.com/lucky-sideburn/kubeinvaders
     support: KubeInvaders Community
   name: kubeinvaders-operator.v0.0.0
@@ -166,5 +166,5 @@ spec:
   provider:
     name: KubeInvaders Community
     url: https://github.com/lucky-sideburn/kubeinvaders
-  replaces: kubeinvaders-operator.v0.1.2
+  replaces: kubeinvaders-operator.v0.1.3
   version: 0.0.0
