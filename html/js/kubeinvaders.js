@@ -697,7 +697,9 @@ function checkRocketAlienCollision(rocket) {
     var rocketSize = 20;
     var alienHeight = 40;
     for (var i = aliens.length - 1; i >= 0; i--) {
-        if (!aliens[i]["active"]) {
+        // Skip dead-but-still-despawning aliens too: rockets pass through
+        // corpses instead of being wasted (and kills aren't double-counted).
+        if (!aliens[i]["active"] || aliens[i]["status"] === "killed") {
             continue;
         }
         var ex = aliens[i]["x"] + invasionOffsetX;
@@ -844,7 +846,10 @@ window.setInterval(function marchInvasion() {
     if (!invasionEnabled || invasionGameOver || invasionWin || !game_mode_switch) {
         return;
     }
-    var active = aliens.filter(function (a) { return a.active; });
+    // "Alive" excludes already-shot aliens: a killed pod keeps rendering (and
+    // stays in the pod list) while it terminates, so counting it would make
+    // the win unreachable.
+    var active = aliens.filter(function (a) { return a.active && a.status !== "killed"; });
     if (active.length === 0) {
         // Cleared the whole wave: scale the deployments to 0 before the
         // ReplicaSets can respawn them. That's the win.
