@@ -35,13 +35,13 @@ metadata:
       ]
     capabilities: Basic Install
     categories: Developer Tools, Monitoring
-    containerImage: docker.io/fumbles/kubeinvaders-operator:v0.1.6
-    createdAt: "2026-06-12T18:58:51Z"
+    containerImage: docker.io/fumbles/kubeinvaders-operator:v0.1.7
+    createdAt: "2026-06-12T19:26:24Z"
     operators.operatorframework.io/builder: operator-sdk-v1.42.2
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
     repository: https://github.com/lucky-sideburn/kubeinvaders
     support: KubeInvaders Community
-  name: kubeinvaders-operator.v0.1.6
+  name: kubeinvaders-operator.v0.1.7
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -337,7 +337,7 @@ spec:
                 - --health-probe-bind-address=:8081
                 command:
                 - /manager
-                image: docker.io/fumbles/kubeinvaders-operator:v0.1.6
+                image: docker.io/fumbles/kubeinvaders-operator:v0.1.7
                 livenessProbe:
                   httpGet:
                     path: /healthz
@@ -432,5 +432,5 @@ spec:
   provider:
     name: KubeInvaders Community
     url: https://github.com/lucky-sideburn/kubeinvaders
-  replaces: kubeinvaders-operator.v0.1.5
-  version: 0.1.6
+  replaces: kubeinvaders-operator.v0.1.6
+  version: 0.1.7
