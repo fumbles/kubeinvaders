@@ -632,6 +632,20 @@ function keyDownHandler(e) {
                 $('#alert_placeholder').replaceWith(alert_div + 'Latest action: Show pods</div>');
             }
         }
+        else if (e.keyCode == 73) {
+            if (invasionEnabled) {
+                invasionEnabled = false;
+                $('#alert_placeholder').replaceWith(alert_div + 'Latest action: Invasion paused</div>');
+            }
+            else {
+                invasionEnabled = true;
+                $('#alert_placeholder').replaceWith(alert_div + 'Latest action: Invasion resumed</div>');
+            }
+        }
+        else if (e.keyCode == 82) {
+            resetInvasion();
+            $('#alert_placeholder').replaceWith(alert_div + 'Latest action: Invasion reset</div>');
+        }
     }
 }
 
@@ -676,41 +690,39 @@ function drawAlien(alienX, alienY, name, status) {
 }
 
 function checkRocketAlienCollision() {
-    if (contains(aliensY, rocketY)) {
-        var i;
-        for (i=aliens.length - 1; i >= 0; i--) {
-            if (aliens[i]["active"] && (rocketY - aliens[i]["y"] < 5)) {
-                var rangeX = []
-                rangeX.push(aliens[i]["x"]);
-
-                for (k=aliens[i]["x"]; k<aliens[i]["x"]+aliensWidth; k++) {
-                    rangeX.push(k);
-                }
-                
-                if (contains(rangeX, rocketX)) {
-                    collisionDetected = true;
-                    aliens[i]["status"] = "killed";
-                    // Aliens might be updated before new pods are fetched
-                    for (j=0; j<pods.length; j++) {
-                        if (pods[j].name == aliens[i].name) {
-                            pods[j].status = "killed";
-                        }
-                    }
-                    if (nodes.some((node) => node.name == aliens[i]["name"])) {
-                        aliens[i]["active"] = false;
-                        startChaosNode(aliens[i]["name"]);
-                    }
-                    else if (virtualMachines.some((vm) => vm.name == aliens[i]["name"])) {
-                        aliens[i]["active"] = false;
-                        rebootVirtualMachine(aliens[i]["name"]);
-                    }
-                    else {
-                        deletePods(aliens[i]["name"]);
-                    }
-                    return true;
+    // AABB collision against the aliens' effective (marching) positions.
+    var rocketSize = 20;
+    var alienHeight = 40;
+    for (var i = aliens.length - 1; i >= 0; i--) {
+        if (!aliens[i]["active"]) {
+            continue;
+        }
+        var ex = aliens[i]["x"] + invasionOffsetX;
+        var ey = aliens[i]["y"] + invasionOffsetY;
+        if (rocketX + rocketSize >= ex && rocketX <= ex + aliensWidth &&
+            rocketY + rocketSize >= ey && rocketY <= ey + alienHeight) {
+            collisionDetected = true;
+            aliens[i]["status"] = "killed";
+            invasionKills += 1;
+            // Aliens might be updated before new pods are fetched
+            for (j=0; j<pods.length; j++) {
+                if (pods[j].name == aliens[i].name) {
+                    pods[j].status = "killed";
                 }
             }
-        } 
+            if (nodes.some((node) => node.name == aliens[i]["name"])) {
+                aliens[i]["active"] = false;
+                startChaosNode(aliens[i]["name"]);
+            }
+            else if (virtualMachines.some((vm) => vm.name == aliens[i]["name"])) {
+                aliens[i]["active"] = false;
+                rebootVirtualMachine(aliens[i]["name"]);
+            }
+            else {
+                deletePods(aliens[i]["name"]);
+            }
+            return true;
+        }
     }
     return false;
 }
@@ -761,15 +773,82 @@ window.setInterval(function draw() {
     }
 }, 1000)
 
+// --- Invasion mechanics: the fleet marches side to side, descends at the
+// walls, and speeds up as it thins out. Positions come from the pod grid;
+// the march is a global offset so the 1s pod reconciler never fights it. ---
+var invasionEnabled = true;     // toggle with 'i'
+var invasionOffsetX = 0;
+var invasionOffsetY = 0;
+var invasionDir = 1;
+var invasionBaseStep = 4;       // px per tick
+var invasionDescent = 14;       // px down per wall bounce
+var invasionGameOver = false;
+var invasionKills = 0;
+
+function resetInvasion() {
+    invasionOffsetX = 0;
+    invasionOffsetY = 0;
+    invasionDir = 1;
+    invasionGameOver = false;
+    invasionKills = 0;
+}
+
+window.setInterval(function marchInvasion() {
+    if (!invasionEnabled || invasionGameOver || !game_mode_switch) {
+        return;
+    }
+    var active = aliens.filter(function (a) { return a.active; });
+    if (active.length === 0) {
+        return;
+    }
+
+    // Classic rule: the fewer invaders left, the faster they march.
+    var speed = invasionBaseStep + Math.max(0, 12 - active.length);
+
+    var minX = Infinity, maxX = -Infinity, maxY = -Infinity;
+    active.forEach(function (a) {
+        minX = Math.min(minX, a.x + invasionOffsetX);
+        maxX = Math.max(maxX, a.x + invasionOffsetX + aliensWidth);
+        maxY = Math.max(maxY, a.y + invasionOffsetY + 40);
+    });
+
+    if (invasionDir > 0 && maxX + speed >= canvas.width - 10) {
+        invasionDir = -1;
+        invasionOffsetY += invasionDescent;
+    }
+    else if (invasionDir < 0 && minX - speed <= 10) {
+        invasionDir = 1;
+        invasionOffsetY += invasionDescent;
+    }
+    else {
+        invasionOffsetX += invasionDir * speed;
+    }
+
+    if (maxY >= canvas.height - 60) {
+        invasionGameOver = true;
+    }
+}, 600);
+
 window.setInterval(function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     for (i=0; i<aliens.length; i++) {
         if (aliens[i]["active"]) {
-            drawAlien(aliens[i]["x"], aliens[i]["y"], aliens[i]["name"], aliens[i]["status"]);
+            drawAlien(aliens[i]["x"] + invasionOffsetX, aliens[i]["y"] + invasionOffsetY, aliens[i]["name"], aliens[i]["status"]);
         }
     }
     drawSpaceship();
+
+    if (invasionGameOver) {
+        ctx.save();
+        ctx.fillStyle = '#FF3333';
+        ctx.font = "44px 'Ubuntu Mono'";
+        ctx.fillText('GAME OVER - THE PODS HAVE LANDED', Math.max(10, canvas.width / 2 - 420), canvas.height / 2 - 20);
+        ctx.fillStyle = 'white';
+        ctx.font = "20px 'Ubuntu Mono'";
+        ctx.fillText('pods destroyed: ' + invasionKills + "   -   press 'r' to defend the cluster again", Math.max(10, canvas.width / 2 - 280), canvas.height / 2 + 20);
+        ctx.restore();
+    }
     
     if (shot && !collisionDetected) {
         drawRocket();
@@ -858,6 +937,11 @@ window.setInterval(function draw() {
 
     ctx.fillText('press \'h\' for help!', 10, startYforHelp + 80);
 
+    ctx.fillText('Pods destroyed: ' + invasionKills, canvas.width - 260, 30);
+    if (!invasionEnabled) {
+        ctx.fillText('Invasion: paused', canvas.width - 260, 50);
+    }
+
     if (help) {
         ctx.fillText('h => Enable or disable help', 10, 280);
         ctx.fillText('s => Enable or disable shuffle for aliens', 10, 300);
@@ -865,6 +949,8 @@ window.setInterval(function draw() {
         ctx.fillText('p => Display pods switch', 10, 340);
         ctx.fillText('c => Display nodes switch', 10, 360);
         ctx.fillText('v => Display virtual machines (KubeVirt) switch', 10, 380);
+        ctx.fillText('i => Pause or resume the invasion march', 10, 400);
+        ctx.fillText('r => Reset the invasion (after game over)', 10, 420);
     }
 }, 10)
 
