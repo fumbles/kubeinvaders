@@ -45,8 +45,10 @@ type DemoSpec struct {
 	// +optional
 	Replicas *int32 `json:"replicas,omitempty"`
 
-	// Image is the demo workload image.
-	// +kubebuilder:default="docker.io/nginxinc/nginx-unprivileged:stable"
+	// Image is the demo workload image. The default is the Kubernetes pause
+	// container: the smallest possible pod (~1MiB), so large waves cost
+	// almost nothing.
+	// +kubebuilder:default="registry.k8s.io/pause:3.10"
 	// +optional
 	Image string `json:"image,omitempty"`
 }

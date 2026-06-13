@@ -12,6 +12,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -269,7 +270,9 @@ func (r *KubeInvadersReconciler) reconcileDemo(ctx context.Context, kinv *gamev1
 	}
 	image := kinv.Spec.Demo.Image
 	if image == "" {
-		image = "docker.io/nginxinc/nginx-unprivileged:stable"
+		// The pause container is the smallest possible pod (~1MiB), so big
+		// waves of aliens cost almost nothing.
+		image = "registry.k8s.io/pause:3.10"
 	}
 
 	for _, nsName := range kinv.Spec.TargetNamespaces {
@@ -310,7 +313,19 @@ func (r *KubeInvadersReconciler) reconcileDemo(ctx context.Context, kinv *gamev1
 				{
 					Name:  "alien",
 					Image: image,
-					Ports: []corev1.ContainerPort{{ContainerPort: 8080, Protocol: corev1.ProtocolTCP}},
+					// Tiny explicit resources: a whole wave of aliens should
+					// cost less than one real workload, and Burstable QoS
+					// keeps eviction behavior predictable during chaos runs.
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("5m"),
+							corev1.ResourceMemory: resource.MustParse("8Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("50m"),
+							corev1.ResourceMemory: resource.MustParse("32Mi"),
+						},
+					},
 				},
 			}
 			return nil

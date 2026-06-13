@@ -789,6 +789,14 @@ var scaledDeployments = [];     // [{name, previousReplicas}] from the win scale
 var playerLives = 3;
 var playerInvulnerableUntil = 0;
 
+// Levels: each cleared wave scales the deployments UP for a bigger, faster
+// wave. Clear the final level and the deployments scale to 0 - total victory.
+var invasionLevel = 1;
+var maxInvasionLevel = 5;
+var baseWaveReplicas = 8;
+var waveReplicasIncrement = 4;
+var levelBannerUntil = 0;
+
 // Random attack formations, re-rolled per wave ('f' to re-roll mid-game).
 var formations = ['grid', 'v', 'columns', 'wave', 'diamond'];
 var currentFormation = formations[Math.floor(Math.random() * formations.length)];
@@ -894,24 +902,7 @@ function scaleNamespaceDeployments(replicas) {
     oReq.send();
 }
 
-function restoreScaledDeployments() {
-    scaledDeployments.forEach(function (d) {
-        if (!d.name) {
-            return;
-        }
-        var oReq = new XMLHttpRequest();
-        openKubeApiRequest(oReq, "GET", "/kube/deployments/scale?namespace=" + encodeURIComponent(namespace)
-            + "&name=" + encodeURIComponent(d.name)
-            + "&replicas=" + (d.previousReplicas > 0 ? d.previousReplicas : 1));
-        oReq.send();
-    });
-    scaledDeployments = [];
-}
-
 function resetInvasion() {
-    if (invasionWin) {
-        restoreScaledDeployments();
-    }
     invasionOffsetX = 0;
     invasionOffsetY = 0;
     invasionDir = 1;
@@ -920,11 +911,15 @@ function resetInvasion() {
     invasionWin = false;
     invasionStarted = false;
     invasionKills = 0;
+    invasionLevel = 1;
+    levelBannerUntil = 0;
     playerLives = 3;
     playerInvulnerableUntil = 0;
     rockets = [];
     rollFormation();
-    $('#alert_placeholder').replaceWith(alert_div + 'New wave incoming - formation: ' + currentFormation + '</div>');
+    // Fresh game, fresh fleet: back to the level 1 wave size.
+    scaleNamespaceDeployments(baseWaveReplicas);
+    $('#alert_placeholder').replaceWith(alert_div + 'New game - level 1, formation: ' + currentFormation + '</div>');
 }
 
 window.setInterval(function marchInvasion() {
@@ -936,11 +931,26 @@ window.setInterval(function marchInvasion() {
     // the win unreachable.
     var active = aliens.filter(function (a) { return a.active && a.status !== "killed"; });
     if (active.length === 0) {
-        // Cleared the whole wave: scale the deployments to 0 before the
-        // ReplicaSets can respawn them. That's the win.
         if (invasionStarted) {
-            invasionWin = true;
-            scaleNamespaceDeployments(0);
+            if (invasionLevel >= maxInvasionLevel) {
+                // Final level cleared: scale the deployments to 0 before the
+                // ReplicaSets can respawn them. Total victory.
+                invasionWin = true;
+                scaleNamespaceDeployments(0);
+            }
+            else {
+                // Wave cleared: level up. Bigger fleet, faster march, +1 life.
+                invasionLevel += 1;
+                playerLives = Math.min(playerLives + 1, 5);
+                levelBannerUntil = Date.now() + 3000;
+                invasionOffsetX = 0;
+                invasionOffsetY = 0;
+                invasionDir = 1;
+                invasionStarted = false;
+                rollFormation();
+                scaleNamespaceDeployments(baseWaveReplicas + (invasionLevel - 1) * waveReplicasIncrement);
+                $('#alert_placeholder').replaceWith(alert_div + 'Level ' + invasionLevel + '! Formation: ' + currentFormation + ' - the invasion grows. +1 life.</div>');
+            }
         }
         return;
     }
@@ -963,8 +973,9 @@ window.setInterval(function marchInvasion() {
         }
     }
 
-    // Classic rule: the fewer invaders left, the faster they march.
-    var speed = invasionBaseStep + Math.max(0, 16 - active.length);
+    // Classic rules: the fewer invaders left, the faster they march - and
+    // every level adds base speed.
+    var speed = invasionBaseStep + Math.max(0, 16 - active.length) + (invasionLevel - 1) * 2;
 
     var minX = Infinity, maxX = -Infinity, maxY = -Infinity;
     active.forEach(function (a) {
@@ -1021,10 +1032,21 @@ window.setInterval(function draw() {
         ctx.save();
         ctx.fillStyle = '#33FF66';
         ctx.font = "44px 'Ubuntu Mono'";
-        ctx.fillText('YOU WIN - WAVE CLEARED', Math.max(10, canvas.width / 2 - 300), canvas.height / 2 - 20);
+        ctx.fillText('YOU WIN - ALL ' + maxInvasionLevel + ' LEVELS CLEARED', Math.max(10, canvas.width / 2 - 380), canvas.height / 2 - 20);
         ctx.fillStyle = 'white';
         ctx.font = "20px 'Ubuntu Mono'";
-        ctx.fillText('deployments scaled to 0   -   pods destroyed: ' + invasionKills + "   -   press 'r' for a new wave", Math.max(10, canvas.width / 2 - 360), canvas.height / 2 + 20);
+        ctx.fillText('deployments scaled to 0   -   pods destroyed: ' + invasionKills + "   -   press 'r' for a new game", Math.max(10, canvas.width / 2 - 360), canvas.height / 2 + 20);
+        ctx.restore();
+    }
+
+    if (!invasionWin && !invasionGameOver && Date.now() < levelBannerUntil) {
+        ctx.save();
+        ctx.fillStyle = '#FFD633';
+        ctx.font = "44px 'Ubuntu Mono'";
+        ctx.fillText('LEVEL ' + invasionLevel, Math.max(10, canvas.width / 2 - 100), canvas.height / 2 - 20);
+        ctx.fillStyle = 'white';
+        ctx.font = "20px 'Ubuntu Mono'";
+        ctx.fillText('the invasion grows - formation: ' + currentFormation, Math.max(10, canvas.width / 2 - 220), canvas.height / 2 + 20);
         ctx.restore();
     }
     
@@ -1116,11 +1138,12 @@ window.setInterval(function draw() {
 
     ctx.fillText('press \'h\' for help!', 10, startYforHelp + 80);
 
-    ctx.fillText('Pods destroyed: ' + invasionKills, canvas.width - 260, 30);
-    ctx.fillText('Lives: ' + Array(Math.max(playerLives, 0) + 1).join('♥ '), canvas.width - 260, 50);
-    ctx.fillText('Formation: ' + currentFormation, canvas.width - 260, 70);
+    ctx.fillText('Level: ' + invasionLevel + ' / ' + maxInvasionLevel, canvas.width - 260, 30);
+    ctx.fillText('Pods destroyed: ' + invasionKills, canvas.width - 260, 50);
+    ctx.fillText('Lives: ' + Array(Math.max(playerLives, 0) + 1).join('♥ '), canvas.width - 260, 70);
+    ctx.fillText('Formation: ' + currentFormation, canvas.width - 260, 90);
     if (!invasionEnabled) {
-        ctx.fillText('Invasion: paused', canvas.width - 260, 90);
+        ctx.fillText('Invasion: paused', canvas.width - 260, 110);
     }
 
     if (help) {
