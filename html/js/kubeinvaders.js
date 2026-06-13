@@ -700,9 +700,9 @@ function checkRocketAlienCollision(rocket) {
     var rocketSize = 20;
     var alienHeight = 40;
     for (var i = aliens.length - 1; i >= 0; i--) {
-        // Skip dead-but-still-despawning aliens too: rockets pass through
-        // corpses instead of being wasted (and kills aren't double-counted).
-        if (!aliens[i]["active"] || aliens[i]["status"] === "killed") {
+        // Skip dead-but-still-despawning aliens (rockets pass through corpses
+        // instead of being wasted) and still-materializing respawns.
+        if (!aliens[i]["active"] || aliens[i]["status"] === "killed" || !alienMaterialized(aliens[i])) {
             continue;
         }
         var ex = aliens[i]["x"] + invasionOffsetX;
@@ -788,6 +788,17 @@ var scaledDeployments = [];     // [{name, previousReplicas}] from the win scale
 // every lost ship scales the wave's deployments +1 replica - the invasion grows.
 var playerLives = 3;
 var playerInvulnerableUntil = 0;
+
+// Respawn grace: newly-appeared pods "materialize" for a moment - drawn
+// translucent, intangible (can't be shot, can't kill you, don't count toward
+// the wave). Softens the near-instant ReplicaSet respawns.
+var alienSpawnTimes = {};
+var respawnGraceMs = 1000;
+
+function alienMaterialized(a) {
+    var t = alienSpawnTimes[a.name];
+    return !t || (Date.now() - t) >= respawnGraceMs;
+}
 
 // Levels: each cleared wave scales the deployments UP for a bigger, faster
 // wave. Clear the final level and the deployments scale to 0 - total victory.
@@ -929,7 +940,7 @@ window.setInterval(function marchInvasion() {
     // "Alive" excludes already-shot aliens: a killed pod keeps rendering (and
     // stays in the pod list) while it terminates, so counting it would make
     // the win unreachable.
-    var active = aliens.filter(function (a) { return a.active && a.status !== "killed"; });
+    var active = aliens.filter(function (a) { return a.active && a.status !== "killed" && alienMaterialized(a); });
     if (active.length === 0) {
         if (invasionStarted) {
             if (invasionLevel >= maxInvasionLevel) {
@@ -1006,7 +1017,16 @@ window.setInterval(function draw() {
 
     for (i=0; i<aliens.length; i++) {
         if (aliens[i]["active"]) {
+            // Still-materializing respawns are drawn translucent (intangible).
+            var materialized = alienMaterialized(aliens[i]);
+            if (!materialized) {
+                ctx.save();
+                ctx.globalAlpha = 0.35;
+            }
             drawAlien(aliens[i]["x"] + invasionOffsetX, aliens[i]["y"] + invasionOffsetY, aliens[i]["name"], aliens[i]["status"]);
+            if (!materialized) {
+                ctx.restore();
+            }
         }
     }
     // Blink the ship while invulnerable after a hit.
@@ -1231,6 +1251,10 @@ window.setInterval(function setAliens() {
     if (pods.length > 0) {
         for (i=0; i<pods.length; i++) {
             if (!podExists(pods[i].name)) {
+                // Track first-seen time per pod for the respawn grace.
+                if (!(pods[i].name in alienSpawnTimes)) {
+                    alienSpawnTimes[pods[i].name] = Date.now();
+                }
                 var replaceWith = findReplace();
                 if (replaceWith != -1) {
                     aliens[replaceWith] = {"name": pods[i].name, "status": pods[i].status, "x": aliens[replaceWith]["x"], "y": aliens[replaceWith]["y"], "active": true}
@@ -1246,6 +1270,17 @@ window.setInterval(function setAliens() {
             }
         }
     }
+
+    // Prune spawn times for pods that no longer exist.
+    var currentNames = {};
+    for (i=0; i<pods.length; i++) {
+        currentNames[pods[i].name] = true;
+    }
+    Object.keys(alienSpawnTimes).forEach(function (name) {
+        if (!currentNames[name]) {
+            delete alienSpawnTimes[name];
+        }
+    });
 }, 1000)
 
 window.setInterval(function backgroundTasks() {
