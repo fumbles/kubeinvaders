@@ -726,9 +726,10 @@ function checkRocketAlienCollision(rocket) {
                 rebootVirtualMachine(aliens[i]["name"]);
             }
             else {
-                // Scale the deployment down by 1 so the ReplicaSet doesn't
-                // immediately respawn this pod — classic SI: dead aliens stay dead.
-                bumpInvasionReplicas(-1);
+                // Mark pod as killed locally so setAliens won't re-add it if K8s
+                // hasn't terminated it yet. No async delta-scale — avoids racing
+                // with scaleNamespaceDeployments on the next level transition.
+                killedPodNames.add(aliens[i]["name"]);
                 deletePods(aliens[i]["name"]);
             }
             return true;
@@ -797,6 +798,15 @@ var playerInvulnerableUntil = 0;
 // the wave). Softens the near-instant ReplicaSet respawns.
 var alienSpawnTimes = {};
 var respawnGraceMs = 1000;
+
+// Tracks pods killed this wave so they can't re-enter the game even if K8s
+// hasn't terminated them yet. Cleared on new game / new level.
+var killedPodNames = new Set();
+
+// Require this many consecutive empty-wave march ticks before declaring the
+// wave cleared — prevents brief pod-list polling blips from skipping levels.
+var waveClearTicks = 0;
+var waveClearRequiredTicks = 3;
 
 function alienMaterialized(a) {
     var t = alienSpawnTimes[a.name];
@@ -975,21 +985,40 @@ initShields();
 function drawShields() {
     for (var s = 0; s < shields.length; s++) {
         if (shields[s].health <= 0) continue;
-        var alpha = 0.4 + 0.6 * (shields[s].health / shieldMaxHealth);
+        var h = shields[s].health;
         var sx = shields[s].x, sy = shields[s].y, sw = shields[s].w, sh = shields[s].h;
+
+        // Color shifts green → yellow → orange as damage increases.
+        var colors = ['#00FF88', '#00FF88', '#FFDD00', '#FF8800'];
+        ctx.fillStyle = colors[shieldMaxHealth - h] || '#00FF88';
+
+        // Draw full bunker arch: top block + two legs.
+        ctx.fillRect(sx,             sy,            sw,       sh * 0.6);
+        ctx.fillRect(sx,             sy + sh * 0.6, sw * 0.3, sh * 0.4);
+        ctx.fillRect(sx + sw * 0.7,  sy + sh * 0.6, sw * 0.3, sh * 0.4);
+
+        // Punch progressively larger craters using clearRect (black shows through).
+        // Health 3 — small hole in top center.
+        if (h <= 3) {
+            ctx.clearRect(sx + sw * 0.35, sy,           sw * 0.3,  sh * 0.25);
+        }
+        // Health 2 — wider crater + corner chips.
+        if (h <= 2) {
+            ctx.clearRect(sx + sw * 0.25, sy,           sw * 0.5,  sh * 0.4);
+            ctx.clearRect(sx,             sy,            sw * 0.12, sh * 0.18);
+            ctx.clearRect(sx + sw * 0.88, sy,            sw * 0.12, sh * 0.18);
+        }
+        // Health 1 — most of top gone, legs badly damaged.
+        if (h <= 1) {
+            ctx.clearRect(sx + sw * 0.12, sy,            sw * 0.76, sh * 0.55);
+            ctx.clearRect(sx,             sy + sh * 0.6, sw * 0.12, sh * 0.4);
+            ctx.clearRect(sx + sw * 0.82, sy + sh * 0.6, sw * 0.18, sh * 0.25);
+        }
+
+        // Label — dims as shield degrades.
         ctx.save();
-        ctx.globalAlpha = alpha;
-        ctx.fillStyle = '#00FF88';
-        // Top solid block.
-        ctx.fillRect(sx, sy, sw, sh * 0.6);
-        // Side legs.
-        ctx.fillRect(sx,              sy + sh * 0.6, sw * 0.25, sh * 0.4);
-        ctx.fillRect(sx + sw * 0.75,  sy + sh * 0.6, sw * 0.25, sh * 0.4);
-        ctx.restore();
-        // Label.
-        ctx.save();
-        ctx.globalAlpha = Math.min(alpha + 0.1, 1);
-        ctx.fillStyle = '#00FF88';
+        ctx.globalAlpha = 0.4 + 0.6 * (h / shieldMaxHealth);
+        ctx.fillStyle = colors[shieldMaxHealth - h] || '#00FF88';
         ctx.font = "9px 'Ubuntu Mono'";
         ctx.fillText('PDB', sx + sw / 2 - 10, sy - 4);
         ctx.restore();
@@ -1008,6 +1037,12 @@ function checkBombShieldCollision(bomb) {
         var inRight = bomb.x >= sx + sw * 0.75 && bomb.x <= sx + sw && bomb.y > sy + sh * 0.6 && bomb.y <= sy + sh;
         if (inTop || inLeft || inRight) {
             shields[s].health -= 1;
+            if (shields[s].health <= 0) {
+                // PDB destroyed — the disruption budget is gone, 2 more pods
+                // are free to join the invasion. Scale the deployment up by 2.
+                bumpInvasionReplicas(2);
+                $('#alert_placeholder').replaceWith(alert_div + 'PDB destroyed! 2 more pods join the invasion!</div>');
+            }
             return true;
         }
     }
@@ -1053,6 +1088,8 @@ function resetInvasion() {
     playerInvulnerableUntil = 0;
     rockets = [];
     enemyBombs = [];
+    killedPodNames = new Set();
+    waveClearTicks = 0;
     rollFormation();
     initShields();
     // Fresh game, fresh fleet: back to the level 1 wave size.
@@ -1068,8 +1105,23 @@ window.setInterval(function marchInvasion() {
     // stays in the pod list) while it terminates, so counting it would make
     // the win unreachable.
     var active = aliens.filter(function (a) { return a.active && a.status !== "killed" && alienMaterialized(a); });
+
+    // Hold the march while any alive pod is still materializing (translucent).
+    // The level doesn't start until the whole fleet has solidified.
+    var stillMaterializing = aliens.some(function (a) {
+        return a.active && a.status !== "killed" && !alienMaterialized(a);
+    });
+    if (stillMaterializing) { return; }
+
     if (active.length === 0) {
         if (invasionStarted) {
+            // Require several consecutive empty ticks before declaring the wave
+            // cleared — a single pod-polling blip won't skip a level.
+            waveClearTicks++;
+            if (waveClearTicks < waveClearRequiredTicks) {
+                return;
+            }
+            waveClearTicks = 0;
             if (invasionLevel >= maxInvasionLevel) {
                 // Final level cleared: scale the deployments to 0 before the
                 // ReplicaSets can respawn them. Total victory.
@@ -1085,6 +1137,7 @@ window.setInterval(function marchInvasion() {
                 invasionOffsetY = 0;
                 invasionDir = 1;
                 invasionStarted = false;
+                killedPodNames = new Set();
                 enemyBombs = [];
                 rollFormation();
                 initShields();
@@ -1094,6 +1147,7 @@ window.setInterval(function marchInvasion() {
         }
         return;
     }
+    waveClearTicks = 0;  // aliens visible — reset the confirmation counter
     invasionStarted = true;
 
     // Contact with a living alien destroys the ship (with a 12px forgiveness
@@ -1149,7 +1203,11 @@ window.setInterval(function alienFireTick() {
     var now = Date.now();
     if (now - lastEnemyFire >= intervalMs) {
         lastEnemyFire = now;
-        fireEnemyBomb();
+        // Fire more bombs simultaneously at higher levels (min 2).
+        var salvo = Math.min(invasionLevel + 1, 5);
+        for (var _i = 0; _i < salvo; _i++) {
+            fireEnemyBomb();
+        }
     }
 }, 100);
 
@@ -1394,7 +1452,7 @@ window.setInterval(function setAliens() {
     aliens = [];
     if (pods.length > 0) {
         for (i=0; i<pods.length; i++) {
-            if (!podExists(pods[i].name)) {
+            if (!podExists(pods[i].name) && !killedPodNames.has(pods[i].name)) {
                 // Track first-seen time per pod for the respawn grace.
                 if (!(pods[i].name in alienSpawnTimes)) {
                     alienSpawnTimes[pods[i].name] = Date.now();
