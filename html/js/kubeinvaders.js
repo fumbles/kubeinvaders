@@ -726,6 +726,9 @@ function checkRocketAlienCollision(rocket) {
                 rebootVirtualMachine(aliens[i]["name"]);
             }
             else {
+                // Scale the deployment down by 1 so the ReplicaSet doesn't
+                // immediately respawn this pod — classic SI: dead aliens stay dead.
+                bumpInvasionReplicas(-1);
                 deletePods(aliens[i]["name"]);
             }
             return true;
@@ -892,6 +895,125 @@ var lastRocketFire = 0;
 var rocketCooldownMs = 110;
 var maxRockets = 8;
 
+// --- Enemy bombs ("Cluster Events") ---
+// Each alive alien can periodically fire a bomb downward.
+// K8s metaphor: unhandled cluster events crashing into your workloads.
+var enemyBombs = [];  // [{x, y, frame}]
+var lastEnemyFire = 0;
+
+function fireEnemyBomb() {
+    if (invasionGameOver || invasionWin || !invasionStarted || !game_mode_switch) return;
+    var active = aliens.filter(function (a) {
+        return a.active && a.status !== 'killed' && alienMaterialized(a);
+    });
+    if (active.length === 0) return;
+    // Prefer aliens in the lower half of the current formation (front-line fire).
+    var maxY = Math.max.apply(null, active.map(function (a) { return a.y + invasionOffsetY; }));
+    var frontLine = active.filter(function (a) { return (a.y + invasionOffsetY) >= maxY - 60; });
+    var shooters = frontLine.length > 0 ? frontLine : active;
+    var s = shooters[Math.floor(Math.random() * shooters.length)];
+    enemyBombs.push({ x: s.x + invasionOffsetX + 18, y: s.y + invasionOffsetY + 40, frame: 0 });
+}
+
+function drawEnemyBombs() {
+    var bombSpeed = 3 + invasionLevel;
+    for (var b = enemyBombs.length - 1; b >= 0; b--) {
+        enemyBombs[b].y += bombSpeed;
+        enemyBombs[b].frame++;
+
+        if (enemyBombs[b].y > canvas.height + 20) {
+            enemyBombs.splice(b, 1);
+            continue;
+        }
+
+        // Shield collision — bomb damages the shield and disappears.
+        if (checkBombShieldCollision(enemyBombs[b])) {
+            enemyBombs.splice(b, 1);
+            continue;
+        }
+
+        // Player collision — only if not invulnerable.
+        if (Date.now() > playerInvulnerableUntil &&
+            enemyBombs[b].x >= spaceshipX && enemyBombs[b].x <= spaceshipX + spaceshipWidth &&
+            enemyBombs[b].y >= spaceshipY && enemyBombs[b].y <= spaceshipY + spaceshipHeight) {
+            enemyBombs.splice(b, 1);
+            playerHit();
+            continue;
+        }
+
+        // Draw classic zigzag bolt.
+        var bx = enemyBombs[b].x;
+        var by = enemyBombs[b].y;
+        var zag = (enemyBombs[b].frame % 4 < 2) ? -2 : 2;
+        ctx.save();
+        ctx.fillStyle = '#FF4400';
+        ctx.fillRect(bx + zag, by,     3, 6);
+        ctx.fillRect(bx - zag, by + 6, 3, 6);
+        ctx.fillRect(bx + zag, by + 12,3, 6);
+        ctx.restore();
+    }
+}
+
+// --- Shields ("PodDisruptionBudgets") ---
+// Four bunkers between the alien fleet and your ship.
+// K8s metaphor: PodDisruptionBudgets limit how much disruption can reach your pods.
+var shields = [];
+var shieldMaxHealth = 4;
+
+function initShields() {
+    shields = [];
+    var num = 4;
+    var sw = 64, sh = 44;
+    var shieldY = canvas.height - 170;
+    for (var i = 0; i < num; i++) {
+        var spacing = canvas.width / (num + 1);
+        shields.push({ x: Math.round(spacing * (i + 1) - sw / 2), y: shieldY, w: sw, h: sh, health: shieldMaxHealth });
+    }
+}
+initShields();
+
+function drawShields() {
+    for (var s = 0; s < shields.length; s++) {
+        if (shields[s].health <= 0) continue;
+        var alpha = 0.4 + 0.6 * (shields[s].health / shieldMaxHealth);
+        var sx = shields[s].x, sy = shields[s].y, sw = shields[s].w, sh = shields[s].h;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = '#00FF88';
+        // Top solid block.
+        ctx.fillRect(sx, sy, sw, sh * 0.6);
+        // Side legs.
+        ctx.fillRect(sx,              sy + sh * 0.6, sw * 0.25, sh * 0.4);
+        ctx.fillRect(sx + sw * 0.75,  sy + sh * 0.6, sw * 0.25, sh * 0.4);
+        ctx.restore();
+        // Label.
+        ctx.save();
+        ctx.globalAlpha = Math.min(alpha + 0.1, 1);
+        ctx.fillStyle = '#00FF88';
+        ctx.font = "9px 'Ubuntu Mono'";
+        ctx.fillText('PDB', sx + sw / 2 - 10, sy - 4);
+        ctx.restore();
+    }
+}
+
+function checkBombShieldCollision(bomb) {
+    for (var s = 0; s < shields.length; s++) {
+        if (shields[s].health <= 0) continue;
+        var sx = shields[s].x, sy = shields[s].y, sw = shields[s].w, sh = shields[s].h;
+        // Top block.
+        var inTop = bomb.x >= sx && bomb.x <= sx + sw && bomb.y >= sy && bomb.y <= sy + sh * 0.6;
+        // Left leg.
+        var inLeft = bomb.x >= sx && bomb.x <= sx + sw * 0.25 && bomb.y > sy + sh * 0.6 && bomb.y <= sy + sh;
+        // Right leg.
+        var inRight = bomb.x >= sx + sw * 0.75 && bomb.x <= sx + sw && bomb.y > sy + sh * 0.6 && bomb.y <= sy + sh;
+        if (inTop || inLeft || inRight) {
+            shields[s].health -= 1;
+            return true;
+        }
+    }
+    return false;
+}
+
 function fireRocket() {
     if (invasionGameOver || invasionWin) {
         return;
@@ -930,7 +1052,9 @@ function resetInvasion() {
     playerLives = 3;
     playerInvulnerableUntil = 0;
     rockets = [];
+    enemyBombs = [];
     rollFormation();
+    initShields();
     // Fresh game, fresh fleet: back to the level 1 wave size.
     scaleNamespaceDeployments(baseWaveReplicas);
     $('#alert_placeholder').replaceWith(alert_div + 'New game - level 1, formation: ' + currentFormation + '</div>');
@@ -961,7 +1085,9 @@ window.setInterval(function marchInvasion() {
                 invasionOffsetY = 0;
                 invasionDir = 1;
                 invasionStarted = false;
+                enemyBombs = [];
                 rollFormation();
+                initShields();
                 scaleNamespaceDeployments(baseWaveReplicas + (invasionLevel - 1) * waveReplicasIncrement);
                 $('#alert_placeholder').replaceWith(alert_div + 'Level ' + invasionLevel + '! Formation: ' + currentFormation + ' - the invasion grows. +1 life.</div>');
             }
@@ -1014,6 +1140,18 @@ window.setInterval(function marchInvasion() {
         invasionGameOver = true;
     }
 }, 350);
+
+// Enemy fire interval — one random alien fires every ~1.5s at level 1, scaling
+// down to ~0.6s by level 5. K8s metaphor: Cluster Events escalating under chaos.
+window.setInterval(function alienFireTick() {
+    if (!invasionEnabled || invasionGameOver || invasionWin || !game_mode_switch) return;
+    var intervalMs = Math.max(600, 1600 - (invasionLevel - 1) * 200);
+    var now = Date.now();
+    if (now - lastEnemyFire >= intervalMs) {
+        lastEnemyFire = now;
+        fireEnemyBomb();
+    }
+}, 100);
 
 window.setInterval(function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -1073,10 +1211,13 @@ window.setInterval(function draw() {
         ctx.restore();
     }
     
+    drawShields();
+
     if (firePressed) {
         fireRocket();
     }
     drawRockets();
+    drawEnemyBombs();
 
     if (x + dx > canvas.width-ballRadius || x + dx < ballRadius) {
         dx = -dx;
