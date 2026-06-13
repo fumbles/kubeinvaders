@@ -1,5 +1,5 @@
 # VERSION defines the project version for the bundle.
-VERSION ?= 0.1.7
+VERSION ?= 0.1.8
 
 # CHANNELS define the bundle channels used in the bundle.
 CHANNELS ?= alpha

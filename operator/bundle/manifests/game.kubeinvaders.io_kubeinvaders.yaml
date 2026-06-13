@@ -73,8 +73,11 @@ spec:
                       left untouched.
                     type: boolean
                   image:
-                    default: docker.io/nginxinc/nginx-unprivileged:stable
-                    description: Image is the demo workload image.
+                    default: registry.k8s.io/pause:3.10
+                    description: |-
+                      Image is the demo workload image. The default is the Kubernetes pause
+                      container: the smallest possible pod (~1MiB), so large waves cost
+                      almost nothing.
                     type: string
                   replicas:
                     default: 8
