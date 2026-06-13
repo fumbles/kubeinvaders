@@ -835,7 +835,10 @@ function formationPosition(idx) {
         case 'columns':
             col = idx % 4;
             row = Math.floor(idx / 4);
-            return { x: clampX(80 + col * Math.max(120, (w - 200) / 4)), y: clampY(10 + row * 48) };
+            // Four columns clustered around the center: traversable between
+            // kills, instead of spread across the whole canvas.
+            var colSpacing = 110;
+            return { x: clampX(cx + (col - 1.5) * colSpacing - 20), y: clampY(10 + row * 48) };
         case 'wave':
             col = idx % 12;
             row = Math.floor(idx / 12);
