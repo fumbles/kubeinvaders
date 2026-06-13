@@ -133,6 +133,24 @@ type KubeInvadersSpec struct {
 	// +optional
 	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Extra Environment Variables"
 	ExtraEnv []corev1.EnvVar `json:"extraEnv,omitempty"`
+
+	// AdditionalLabels are extra labels merged onto the KubeInvaders Deployment
+	// and its pods. Use this to integrate with label-driven tooling such as
+	// dashboards, service meshes, or cost-allocation systems without the
+	// operator stripping the labels on the next reconcile.
+	//
+	// Example:
+	//   additionalLabels:
+	//     dashboard.yamlwrangler.com/enabled: "true"
+	// +optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Additional Labels"
+	AdditionalLabels map[string]string `json:"additionalLabels,omitempty"`
+
+	// AdditionalAnnotations are extra annotations merged onto the KubeInvaders
+	// Deployment and its pods.
+	// +optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,displayName="Additional Annotations"
+	AdditionalAnnotations map[string]string `json:"additionalAnnotations,omitempty"`
 }
 
 // KubeInvadersStatus defines the observed state of KubeInvaders.

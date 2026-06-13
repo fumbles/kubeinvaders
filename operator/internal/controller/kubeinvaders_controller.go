@@ -143,6 +143,19 @@ func labelsFor(kinv *gamev1alpha1.KubeInvaders) map[string]string {
 	}
 }
 
+// mergeStringMaps returns a new map containing all key/value pairs from base,
+// with every key in override added or replaced. Neither input is mutated.
+func mergeStringMaps(base, override map[string]string) map[string]string {
+	out := make(map[string]string, len(base)+len(override))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range override {
+		out[k] = v
+	}
+	return out
+}
+
 // clusterRBACName returns a cluster-unique name for the ClusterRole and
 // ClusterRoleBinding belonging to a KubeInvaders instance.
 func clusterRBACName(kinv *gamev1alpha1.KubeInvaders) string {
@@ -301,7 +314,7 @@ func (r *KubeInvadersReconciler) reconcileDemo(ctx context.Context, kinv *gamev1
 			ObjectMeta: metav1.ObjectMeta{Name: demoDeployName, Namespace: nsName},
 		}
 		if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, deploy, func() error {
-			deploy.Labels = labels
+			deploy.Labels = mergeStringMaps(deploy.Labels, labels)
 			deploy.Spec.Replicas = &replicas
 			if deploy.Spec.Selector == nil {
 				deploy.Spec.Selector = &metav1.LabelSelector{
@@ -466,12 +479,24 @@ func (r *KubeInvadersReconciler) reconcileDeployment(ctx context.Context, kinv *
 		ObjectMeta: metav1.ObjectMeta{Name: kinv.Name, Namespace: kinv.Namespace},
 	}
 	_, err := controllerutil.CreateOrUpdate(ctx, r.Client, deploy, func() error {
-		deploy.Labels = labels
+		// Merge: preserve any labels/annotations already on the Deployment
+		// (e.g. added manually or by other tooling), then layer the operator's
+		// required labels and any user-declared extras on top.
+		deploy.Labels = mergeStringMaps(deploy.Labels, labels)
+		deploy.Labels = mergeStringMaps(deploy.Labels, kinv.Spec.AdditionalLabels)
+		deploy.Annotations = mergeStringMaps(deploy.Annotations, kinv.Spec.AdditionalAnnotations)
+
+		// Pod template: selector labels are always present; extra labels are
+		// added on top (extra labels don't conflict with MatchLabels).
+		podLabels := mergeStringMaps(labels, kinv.Spec.AdditionalLabels)
+		podAnnotations := kinv.Spec.AdditionalAnnotations
+
 		deploy.Spec.Replicas = kinv.Spec.Replicas
 		if deploy.Spec.Selector == nil {
 			deploy.Spec.Selector = &metav1.LabelSelector{MatchLabels: labels}
 		}
-		deploy.Spec.Template.Labels = labels
+		deploy.Spec.Template.Labels = podLabels
+		deploy.Spec.Template.Annotations = podAnnotations
 		deploy.Spec.Template.Spec.ServiceAccountName = kinv.Name
 		container := corev1.Container{
 			Name:            "kubeinvaders",
