@@ -726,10 +726,12 @@ function checkRocketAlienCollision(rocket) {
                 rebootVirtualMachine(aliens[i]["name"]);
             }
             else {
-                // Mark pod as killed locally so setAliens won't re-add it if K8s
-                // hasn't terminated it yet. No async delta-scale — avoids racing
-                // with scaleNamespaceDeployments on the next level transition.
+                // Mark killed locally so setAliens won't re-add the same pod while
+                // K8s is still terminating it. Scale deployment down so K8s doesn't
+                // respawn a replacement. The 1050ms waveClear debounce guarantees
+                // these delta calls settle before the next scaleNamespaceDeployments.
                 killedPodNames.add(aliens[i]["name"]);
+                bumpInvasionReplicas(-1);
                 deletePods(aliens[i]["name"]);
             }
             return true;
@@ -1092,8 +1094,9 @@ function resetInvasion() {
     waveClearTicks = 0;
     rollFormation();
     initShields();
-    // Fresh game, fresh fleet: back to the level 1 wave size.
-    scaleNamespaceDeployments(baseWaveReplicas);
+    // Scale to 0 first to flush any lingering delta calls, then up to wave 1.
+    scaleNamespaceDeployments(0);
+    setTimeout(function() { scaleNamespaceDeployments(baseWaveReplicas); }, 1500);
     $('#alert_placeholder').replaceWith(alert_div + 'New game - level 1, formation: ' + currentFormation + '</div>');
 }
 
@@ -1106,12 +1109,16 @@ window.setInterval(function marchInvasion() {
     // the win unreachable.
     var active = aliens.filter(function (a) { return a.active && a.status !== "killed" && alienMaterialized(a); });
 
-    // Hold the march while any alive pod is still materializing (translucent).
-    // The level doesn't start until the whole fleet has solidified.
-    var stillMaterializing = aliens.some(function (a) {
-        return a.active && a.status !== "killed" && !alienMaterialized(a);
-    });
-    if (stillMaterializing) { return; }
+    // Before the wave starts, hold the march until the whole fleet has
+    // solidified — the player sees them phase in, then the fight begins.
+    // Mid-wave spawns (K8s respawns, PDB-destruction reinforcements) join
+    // immediately without pausing the march.
+    if (!invasionStarted) {
+        var stillMaterializing = aliens.some(function (a) {
+            return a.active && a.status !== "killed" && !alienMaterialized(a);
+        });
+        if (stillMaterializing) { return; }
+    }
 
     if (active.length === 0) {
         if (invasionStarted) {
@@ -1141,7 +1148,14 @@ window.setInterval(function marchInvasion() {
                 enemyBombs = [];
                 rollFormation();
                 initShields();
-                scaleNamespaceDeployments(baseWaveReplicas + (invasionLevel - 1) * waveReplicasIncrement);
+                // Scale to 0 first so any in-flight delta(-1) calls from the
+                // previous wave can't subtract from the new wave's replica count.
+                scaleNamespaceDeployments(0);
+                (function(lvl) {
+                    setTimeout(function() {
+                        scaleNamespaceDeployments(baseWaveReplicas + (lvl - 1) * waveReplicasIncrement);
+                    }, 1500);
+                })(invasionLevel);
                 $('#alert_placeholder').replaceWith(alert_div + 'Level ' + invasionLevel + '! Formation: ' + currentFormation + ' - the invasion grows. +1 life.</div>');
             }
         }
@@ -1420,8 +1434,8 @@ function showPodNameControl() {
 }
 
 function podExists(podName) {
-    for (i=0; i<aliens.length; i++) {
-        if (aliens[i]["name"] == podName) {
+    for (var j=0; j<aliens.length; j++) {
+        if (aliens[j]["name"] == podName) {
             return true;
         }
     }
@@ -1429,9 +1443,9 @@ function podExists(podName) {
 }
 
 function findReplace() {
-    for (i=0; i<aliens.length; i++) {
-        if (!aliens[i]["active"]) {
-            return i;
+    for (var j=0; j<aliens.length; j++) {
+        if (!aliens[j]["active"]) {
+            return j;
         }
     }
     return -1;
@@ -1451,7 +1465,7 @@ window.setInterval(function setAliens() {
 
     aliens = [];
     if (pods.length > 0) {
-        for (i=0; i<pods.length; i++) {
+        for (var i=0; i<pods.length; i++) {
             if (!podExists(pods[i].name) && !killedPodNames.has(pods[i].name)) {
                 // Track first-seen time per pod for the respawn grace.
                 if (!(pods[i].name in alienSpawnTimes)) {
@@ -1475,8 +1489,8 @@ window.setInterval(function setAliens() {
 
     // Prune spawn times for pods that no longer exist.
     var currentNames = {};
-    for (i=0; i<pods.length; i++) {
-        currentNames[pods[i].name] = true;
+    for (var pi=0; pi<pods.length; pi++) {
+        currentNames[pods[pi].name] = true;
     }
     Object.keys(alienSpawnTimes).forEach(function (name) {
         if (!currentNames[name]) {
