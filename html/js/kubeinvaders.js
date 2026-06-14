@@ -822,6 +822,7 @@ var maxInvasionLevel = 5;
 var baseWaveReplicas = 8;
 var waveReplicasIncrement = 4;
 var levelBannerUntil = 0;
+var pdbAlertUntil = 0;
 
 // Random attack formations, re-rolled per wave ('f' to re-roll mid-game).
 var formations = ['grid', 'v', 'columns', 'wave', 'diamond'];
@@ -1043,7 +1044,8 @@ function checkBombShieldCollision(bomb) {
                 // PDB destroyed — the disruption budget is gone, 2 more pods
                 // are free to join the invasion. Scale the deployment up by 2.
                 bumpInvasionReplicas(2);
-                $('#alert_placeholder').replaceWith(alert_div + 'PDB destroyed! 2 more pods join the invasion!</div>');
+                pdbAlertUntil = Date.now() + 2500;
+                $('#alert_placeholder').replaceWith(alert_div + 'PDB destroyed! Reinforcements incoming!</div>');
             }
             return true;
         }
@@ -1280,6 +1282,15 @@ window.setInterval(function draw() {
         ctx.fillStyle = 'white';
         ctx.font = "20px 'Ubuntu Mono'";
         ctx.fillText('the invasion grows - formation: ' + currentFormation, Math.max(10, canvas.width / 2 - 220), canvas.height / 2 + 20);
+        ctx.restore();
+    }
+
+    if (Date.now() < pdbAlertUntil) {
+        ctx.save();
+        // Pulse: alternate between full red and dark red every 300ms for urgency.
+        ctx.fillStyle = Math.floor(Date.now() / 300) % 2 === 0 ? '#FF3333' : '#CC0000';
+        ctx.font = "bold 28px 'Ubuntu Mono'";
+        ctx.fillText('⚠ PDB DESTROYED — REINFORCEMENTS INCOMING', Math.max(10, canvas.width / 2 - 320), 48);
         ctx.restore();
     }
     
