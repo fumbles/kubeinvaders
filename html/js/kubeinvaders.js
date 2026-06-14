@@ -821,6 +821,9 @@ var invasionLevel = 1;
 var maxInvasionLevel = 5;
 var baseWaveReplicas = 8;
 var waveReplicasIncrement = 4;
+// Expected alive pod count for the current wave. Holds the march until K8s
+// has scheduled all pods, not just the first ones to appear.
+var wavePodTarget = baseWaveReplicas;
 var levelBannerUntil = 0;
 var pdbAlertUntil = 0;
 
@@ -1044,6 +1047,7 @@ function checkBombShieldCollision(bomb) {
                 // PDB destroyed — the disruption budget is gone, 2 more pods
                 // are free to join the invasion. Scale the deployment up by 2.
                 bumpInvasionReplicas(2);
+                wavePodTarget += 2;
                 pdbAlertUntil = Date.now() + 2500;
                 $('#alert_placeholder').replaceWith(alert_div + 'PDB destroyed! Reinforcements incoming!</div>');
             }
@@ -1094,6 +1098,7 @@ function resetInvasion() {
     enemyBombs = [];
     killedPodNames = new Set();
     waveClearTicks = 0;
+    wavePodTarget = baseWaveReplicas;
     rollFormation();
     initShields();
     // Scale to 0 first to flush any lingering delta calls, then up to wave 1.
@@ -1116,10 +1121,18 @@ window.setInterval(function marchInvasion() {
     // Mid-wave spawns (K8s respawns, PDB-destruction reinforcements) join
     // immediately without pausing the march.
     if (!invasionStarted) {
+        // Count pods that are alive (not killed) and currently known to us.
+        var aliveCount = aliens.filter(function (a) {
+            return a.active && a.status !== "killed";
+        }).length;
+        // Hold until K8s has scheduled the full expected fleet AND every pod
+        // has cleared its spawn grace period. Without the count check, K8s
+        // scheduling 3 of 8 pods quickly would let the wave start early.
+        var fleetIncomplete = aliveCount < wavePodTarget;
         var stillMaterializing = aliens.some(function (a) {
             return a.active && a.status !== "killed" && !alienMaterialized(a);
         });
-        if (stillMaterializing) { return; }
+        if (fleetIncomplete || stillMaterializing) { return; }
     }
 
     if (active.length === 0) {
@@ -1148,6 +1161,7 @@ window.setInterval(function marchInvasion() {
                 invasionStarted = false;
                 killedPodNames = new Set();
                 enemyBombs = [];
+                wavePodTarget = baseWaveReplicas + (invasionLevel - 1) * waveReplicasIncrement;
                 rollFormation();
                 initShields();
                 // Scale to 0 first so any in-flight delta(-1) calls from the
