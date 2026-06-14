@@ -13,19 +13,37 @@ Some companies use it for marketing at tech conferences in DevOps & SRE. For exa
 
 # Table of Contents
 
-1. [Description](#Description)
-2. [What you will learn](#What-you-will-learn)
-3. [Installation](#Installation)
-4. [Example using Podman + MiniKube](#Example-using-Podman--MiniKube)
-5. [URL Monitoring During Chaos Session](#URL-Monitoring-During-Chaos-Session)
-6. [Troubleshooting Unknown Namespace](#Troubleshooting-Unknown-Namespace)
-7. [Prometheus Metrics](#Prometheus-Metrics)
-8. [Community blogs and videos](#Community-blogs-and-videos)
-9. [License](#License)
+1. [Description](#description)
+2. [How the Game Works](#how-the-game-works)
+3. [What you will learn](#what-you-will-learn)
+4. [Installation — Operator (recommended)](#installation--operator-recommended)
+5. [Installation — Podman / Docker](#installation--podman--docker)
+6. [Example using Podman + MiniKube](#example-using-podman--minikube)
+7. [URL Monitoring During Chaos Session](#url-monitoring-during-chaos-session)
+8. [Troubleshooting Unknown Namespace](#troubleshooting-unknown-namespace)
+9. [Prometheus Metrics](#prometheus-metrics)
+10. [Community blogs and videos](#community-blogs-and-videos)
+11. [License](#license)
 
 ## Description
 
-Inspired by the classic Space Invaders game, KubeInvaders offers a playful and engaging way to learn about Kubernetes resilience by stressing a cluster and observing its behavior under pressure. This open-source project, built without relying on any external frameworks, provides a fun and educational experience for developers to explore the limits and strengths of their Kubernetes deployments.
+Inspired by the classic Space Invaders arcade game, KubeInvaders offers a playful and engaging way to learn about Kubernetes resilience by stressing a cluster and observing its behavior under pressure. This open-source project, built without relying on any external frameworks, provides a fun and educational experience for developers to explore the limits and strengths of their Kubernetes deployments.
+
+Every visual element maps to a real Kubernetes concept — so as you play, you're literally performing chaos engineering and watching the cluster respond in real time.
+
+## How the Game Works
+
+KubeInvaders translates live Kubernetes resources into game objects:
+
+**Aliens → Pods.** Each alien on screen is a real running pod in your target namespace. When you shoot one, the pod is deleted via the Kubernetes API and the alien disappears. The Kubernetes Deployment controller notices the desired replica count is now higher than the actual count and schedules a replacement — but in the game, pods don't respawn during a wave. The deployment is scaled down by one on each kill, so K8s doesn't replace it until the next wave begins.
+
+**Cluster Events → Enemy fire.** Aliens shoot back! The enemy bombs raining down on you represent disruptive cluster events being propagated through the system. As levels increase, more aliens fire simultaneously and the rate increases.
+
+**PodDisruptionBudgets → Shields.** Four bunker-style shields protect your ship. Each shield absorbs four hits before it's destroyed — and you'll see progressive visual damage as the health degrades. When a shield is fully destroyed, the PDB is gone and two replacement pods immediately join the invasion as reinforcements, because without the budget in place, more disruption is allowed.
+
+**Waves → Deployment scaling.** Each wave is a full deployment of pods at the configured replica count. Clearing a wave advances to the next level, the fleet grows, and you earn a bonus life.
+
+**Ship → Your role.** You are the SRE performing the chaos experiment.
 
 ## What you will learn
 
@@ -33,16 +51,176 @@ By running chaos experiments with KubeInvaders you can observe the following Kub
 
 - **Pod lifecycle** — how pods are terminated and recreated by their controllers
 - **Self-healing** — how Deployments and ReplicaSets maintain the desired replica count after pod deletion
+- **PodDisruptionBudgets** — how PDBs bound disruption, and what happens to a workload when they are removed
 - **Scheduling** — where Kubernetes places new pods after disruption and why
 - **Node pressure** — how the cluster reacts when a worker node is attacked or becomes unavailable
 - **Namespace isolation** — how workloads in different namespaces are affected independently
 - **Recovery time** — how long the cluster takes to return to a steady state under different configurations
 
-## Installation
+## Installation — Operator (recommended)
 
-**Helm installation is currently not supported.**
+The KubeInvaders operator is the easiest way to run the game against a real cluster. It handles RBAC, the game deployment, optional demo workloads, and OpenShift Route or Ingress setup automatically.
 
-The easiest way to run KubeInvaders is directly with Podman or Docker.
+### Prerequisites
+
+- OLM (Operator Lifecycle Manager) installed on your cluster. OpenShift includes OLM out of the box. For vanilla Kubernetes, install it with:
+
+```bash
+curl -sL https://github.com/operator-framework/operator-lifecycle-manager/releases/latest/download/install.sh | bash -s latest
+```
+
+### Step 1 — Add the CatalogSource
+
+#### OpenShift
+
+```bash
+cat << 'EOF' | oc apply -f -
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: kubeinvaders-catalog
+  namespace: openshift-marketplace
+spec:
+  sourceType: grpc
+  image: docker.io/fumbles/kubeinvaders-operator-catalog:v0.1.9
+  displayName: KubeInvaders Catalog
+  publisher: KubeInvaders Community
+  updateStrategy:
+    registryPoll:
+      interval: 10m
+EOF
+```
+
+#### Vanilla Kubernetes (OLM)
+
+```bash
+cat << 'EOF' | kubectl apply -f -
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: kubeinvaders-catalog
+  namespace: olm
+spec:
+  sourceType: grpc
+  image: docker.io/fumbles/kubeinvaders-operator-catalog:v0.1.9
+  displayName: KubeInvaders Catalog
+  publisher: KubeInvaders Community
+  updateStrategy:
+    registryPoll:
+      interval: 10m
+EOF
+```
+
+### Step 2 — Subscribe to the operator
+
+#### OpenShift
+
+```bash
+cat << 'EOF' | oc apply -f -
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: kubeinvaders-operator
+  namespace: openshift-operators
+spec:
+  channel: alpha
+  name: kubeinvaders-operator
+  source: kubeinvaders-catalog
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+EOF
+```
+
+#### Vanilla Kubernetes (OLM)
+
+```bash
+cat << 'EOF' | kubectl apply -f -
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: kubeinvaders-operator
+  namespace: operators
+spec:
+  channel: alpha
+  name: kubeinvaders-operator
+  source: kubeinvaders-catalog
+  sourceNamespace: olm
+  installPlanApproval: Automatic
+EOF
+```
+
+Wait for the operator pod to become ready:
+
+```bash
+# OpenShift
+oc get pods -n openshift-operators -w
+
+# Kubernetes
+kubectl get pods -n operators -w
+```
+
+### Step 3 — Create a KubeInvaders instance
+
+Create the target namespace and apply the custom resource:
+
+```bash
+# OpenShift
+oc new-project kubeinvaders
+
+# Kubernetes
+kubectl create namespace kubeinvaders
+```
+
+```bash
+cat << 'EOF' | kubectl apply -f -
+apiVersion: game.kubeinvaders.io/v1alpha1
+kind: KubeInvaders
+metadata:
+  name: kubeinvaders-sample
+  namespace: kubeinvaders
+spec:
+  targetNamespaces:
+    - kubeinvaders-demo
+  demo:
+    enabled: true
+    replicas: 8
+  # OpenShift: expose via a Route with TLS edge termination
+  route:
+    enabled: true
+    tls: true
+  # Non-OpenShift: expose via an Ingress instead
+  ingress:
+    enabled: false
+    # host: kubeinvaders.example.com
+    # ingressClassName: nginx
+EOF
+```
+
+Once the pods are running, get the URL:
+
+```bash
+# OpenShift
+oc get route -n kubeinvaders
+
+# Kubernetes (if using Ingress)
+kubectl get ingress -n kubeinvaders
+```
+
+### Optional: preserve extra labels or annotations
+
+If you use label-driven tooling (dashboards, service meshes, cost allocation), add your labels to the CR spec so the operator merges them instead of overwriting them on each reconcile:
+
+```yaml
+spec:
+  additionalLabels:
+    dashboard.example.com/enabled: "true"
+  additionalAnnotations:
+    prometheus.io/scrape: "true"
+```
+
+## Installation — Podman / Docker
+
+The easiest way to try KubeInvaders without a cluster is directly with Podman or Docker.
 
 Run with Podman:
 
@@ -58,11 +236,11 @@ docker run --rm -p 8080:8080 docker.io/luckysideburn/kubeinvaders:latest
 
 Then open:
 
-```bash
+```
 http://localhost:8080
 ```
 
-If you want to run KubeInvaders against your own Kubernetes cluster, create the required RBAC components (assumes k8s v1.24+):
+If you want to run KubeInvaders against your own Kubernetes cluster without the operator, create the required RBAC components (assumes k8s v1.24+):
 
 ```bash
 cat << 'EOF' | kubectl apply -f -
@@ -132,30 +310,6 @@ metadata:
   namespace: kubeinvaders
   annotations:
     kubernetes.io/service-account.name: kinv-sa
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  namespace: default
-  name: kubevirt-vm-restart-role
-rules:
-- apiGroups: ["subresources.kubevirt.io"]
-  resources: ["virtualmachines/restart"]
-  verbs: ["update"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: kubevirt-vm-restart-binding
-  namespace: default
-subjects:
-- kind: ServiceAccount
-  name: kubeinvaders
-  namespace: kubeinvaders
-roleRef:
-  kind: ClusterRole
-  name: kubevirt-vm-restart-role
-  apiGroup: rbac.authorization.k8s.io
 EOF
 ```
 
@@ -167,13 +321,13 @@ TOKEN=$(kubectl get secret -n kubeinvaders -o go-template='{{.data.token | base6
 
 **Important:** Use a valid Kubernetes token. If the token is missing, invalid, or expired, KubeInvaders cannot call the Kubernetes API and game actions will fail.
 
-The example above shows how to extract the token from `kinv-sa-token`. If you use short-lived tokens, generate a new one when needed:
+If you use short-lived tokens, generate a new one when needed:
 
 ```bash
 kubectl create token kinv-sa -n kubeinvaders --duration=8h
 ```
 
-Create two namespaces:
+Create target namespaces with pods to shoot at:
 
 ```bash
 kubectl create namespace namespace1
@@ -186,40 +340,16 @@ Install MiniKube:
 
 ```bash
 minikube start
-😄  minikube v1.38.1 on Darwin 26.2 (arm64)
-✨  Automatically selected the vfkit driver. Other choices: qemu2, virtualbox, vmware, ssh, podman (experimental)
-❗  Starting v1.39.0, minikube will default to "containerd" container runtime. See #21973 for more info.
-💿  Downloading VM boot image ...
-    > minikube-v1.38.0-arm64.iso....:  65 B / 65 B [---------] 100.00% ? p/s 0s
-    > minikube-v1.38.0-arm64.iso:  402.91 MiB / 402.91 MiB  100.00% 13.39 MiB p
-👍  Starting "minikube" primary control-plane node in "minikube" cluster
-💾  Downloading Kubernetes v1.35.1 preload ...
-    > preloaded-images-k8s-v18-v1...:  243.95 MiB / 243.95 MiB  100.00% 14.15 M
-🔥  Creating vfkit VM (CPUs=2, Memory=4600MB, Disk=20000MB) ...
-🐳  Preparing Kubernetes v1.35.1 on Docker 28.5.2 ...
-🔗  Configuring bridge CNI (Container Networking Interface) ...
-🔎  Verifying Kubernetes components...
-    ▪ Using image gcr.io/k8s-minikube/storage-provisioner:v5
-🌟  Enabled addons: storage-provisioner, default-storageclass
-❗  /usr/local/bin/kubectl is version 1.30.1, which may have incompatibilities with Kubernetes 1.35.1.
-    ▪ Want kubectl v1.35.1? Try 'minikube kubectl -- get pods -A'
 ```
 
-Get the MiniKube API server address using one of these commands:
-
-```bash
-cat ~/.kube/config | grep server | grep $(minikube ip)
-    server: https://192.168.64.2:8443
-```
+Get the MiniKube API server address:
 
 ```bash
 kubectl cluster-info
-
-Kubernetes control plane is running at https://192.168.64.2:8443
-CoreDNS is running at https://192.168.64.2:8443/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+# Kubernetes control plane is running at https://192.168.64.2:8443
 ```
 
-Get the MiniKube CA certificate (you will need its content when configuring KubeInvaders):
+Get the MiniKube CA certificate (needed when configuring KubeInvaders):
 
 ```bash
 cat ~/.minikube/ca.crt
